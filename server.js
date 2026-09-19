@@ -9,7 +9,6 @@ const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
 
-// Хранилище данных в памяти сервера
 const users = {}; // socket.id -> { nickname }
 const messages = {}; // chatId -> [ { sender, to, text, timestamp } ]
 
@@ -108,6 +107,9 @@ app.get('/', (req, res) => {
                 <label>Защитный PIN (Аварийная очистка):</label>
                 <input type="password" id="setWipePin" placeholder="4321">
 
+                <label>Доверенные лица для SOS (через запятую):</label>
+                <input type="text" id="setSosContacts" placeholder="Например: Мама, Брат, Полиция">
+
                 <label>Автоматическая блокировка экрана:</label>
                 <select id="autoLockSelect">
                     <option value="-1">Нет</option>
@@ -127,11 +129,12 @@ app.get('/', (req, res) => {
             let currentUser = '';
             let mainPin = '1234';
             let wipePin = '4321';
+            let sosContactsList = '';
             let lockTimeoutSec = 15;
             let inactivityTimer = null;
             let sosActive = false;
             let activeRecipient = '';
-            let myContacts = [];
+            let myChats = []; // Список ников с кем есть чаты
 
             function registerUser() {
                 const nick = document.getElementById('nicknameInput').value.trim();
@@ -145,6 +148,7 @@ app.get('/', (req, res) => {
                 document.getElementById('userNameTitle').innerText = 'Чаты (' + currentUser + ')';
                 document.getElementById('setMainPin').value = mainPin;
                 document.getElementById('setWipePin').value = wipePin;
+                document.getElementById('setSosContacts').value = sosContactsList;
                 document.getElementById('autoLockSelect').value = lockTimeoutSec;
                 
                 switchScreen('messengerScreen');
@@ -168,24 +172,28 @@ app.get('/', (req, res) => {
 
             socket.on('search_result', (foundUser) => {
                 if (foundUser) {
-                    if (!myContacts.includes(foundUser)) {
-                        myContacts.push(foundUser);
-                        renderChats();
-                    }
+                    addChat(foundUser);
                     openChat(foundUser);
                 } else {
                     alert('Пользователь не найден в сети.');
                 }
             });
 
+            function addChat(contact) {
+                if (!myChats.includes(contact) && contact !== currentUser) {
+                    myChats.push(contact);
+                    renderChats();
+                }
+            }
+
             function renderChats() {
                 const container = document.getElementById('chatListContainer');
-                if (myContacts.length === 0) {
+                if (myChats.length === 0) {
                     container.innerHTML = '<p style="text-align: center; color: #9ca3af; margin-top: 50px;">Нет чатов. Введите ник пользователя сверху, чтобы начать общение.</p>';
                     return;
                 }
                 container.innerHTML = '';
-                myContacts.forEach(contact => {
+                myChats.forEach(contact => {
                     container.innerHTML += \`
                         <div class="chat-item" onclick="openChat('\${contact}')">
                             <b>\${contact}</b>
@@ -216,25 +224,20 @@ app.get('/', (req, res) => {
                 input.value = '';
             }
 
-            // SPA-обновление: сохраняем экран и не перекидываем пользователя
+            // Мгновенная доставка сообщений в реальном времени (как в Telegram)
             socket.on('receive_message', (data) => {
-                const otherUser = data.from === currentUser ? data.to : data.from;
+                const otherUser = data.sender === currentUser ? data.to : data.sender;
                 
-                // Если мы сейчас в активном чате с этим пользователем — обновляем сообщения
+                // Добавляем чат в список, если его там еще нет
+                addChat(otherUser);
+
+                // Если мы сейчас находимся в активном чате с этим пользователем — сразу выводим сообщение
                 const activeScreen = document.querySelector('.screen.active').id;
                 if (activeScreen === 'chatScreen' && otherUser === activeRecipient) {
                     const box = document.getElementById('msgBox');
-                    const isMe = data.from === currentUser;
-                    box.innerHTML += \`<div class="msg \${isMe ? 'me' : ''}"><b>\${data.from}:</b> \${data.text}</div>\`;
+                    const isMe = data.sender === currentUser;
+                    box.innerHTML += \`<div class="msg \${isMe ? 'me' : ''}"><b>\${data.sender}:</b> \${data.text}</div>\`;
                     box.scrollTop = box.scrollHeight;
-                }
-
-                // Добавляем в контакты при необходимости без сброса экрана
-                if (!myContacts.includes(otherUser) && otherUser !== currentUser) {
-                    myContacts.push(otherUser);
-                    if (activeScreen === 'messengerScreen') {
-                        renderChats();
-                    }
                 }
             });
 
@@ -258,7 +261,7 @@ app.get('/', (req, res) => {
                     startInactivityTimer();
                 } else if (enteredPin === wipePin) {
                     switchScreen('messengerScreen');
-                    myContacts = [];
+                    myChats = [];
                     renderChats();
                     socket.emit('emergency_wipe');
                     alert('⚠️ Выполнен аварийный сброс: локальная и серверная история очищены.');
@@ -281,6 +284,7 @@ app.get('/', (req, res) => {
             function saveSettings() {
                 const mPin = document.getElementById('setMainPin').value.trim();
                 const wPin = document.getElementById('setWipePin').value.trim();
+                const sosList = document.getElementById('setSosContacts').value.trim();
                 const lockTime = parseInt(document.getElementById('autoLockSelect').value);
 
                 if (mPin.length < 3 || wPin.length < 3) {
@@ -289,6 +293,7 @@ app.get('/', (req, res) => {
                 }
                 mainPin = mPin;
                 wipePin = wPin;
+                sosContactsList = sosList;
                 lockTimeoutSec = lockTime;
                 alert('Настройки успешно сохранены!');
                 closeSettings();
@@ -303,7 +308,7 @@ app.get('/', (req, res) => {
 
             function startInactivityTimer() {
                 stopInactivityTimer();
-                if (lockTimeoutSec === -1) return; // Автоблокировка отключена («Нет»)
+                if (lockTimeoutSec === -1) return;
                 inactivityTimer = setTimeout(() => {
                     const activeScreen = document.querySelector('.screen.active').id;
                     if (activeScreen !== 'regScreen' && activeScreen !== 'pinScreen') {
@@ -332,7 +337,7 @@ app.get('/', (req, res) => {
                 if (sosActive) {
                     btn.style.background = '#16a34a';
                     btn.innerText = 'SOS (Фон)';
-                    alert('SOS активирован! Передача координат в фоновом режиме запущена.');
+                    alert('SOS активирован! Сигнал отправлен доверенным лицам: ' + (sosContactsList || 'не указаны'));
                 } else {
                     btn.style.background = '#dc2626';
                     btn.innerText = 'SOS';
@@ -345,7 +350,7 @@ app.get('/', (req, res) => {
     `);
 });
 
-// Серверная обработка сетей и WebSockets
+// Серверная логика WebSocket
 io.on('connection', (socket) => {
     socket.on('register', (nickname) => {
         users[socket.id] = { nickname };
@@ -372,8 +377,10 @@ io.on('connection', (socket) => {
         const msgObj = { sender, to: recipient, text, timestamp: Date.now() };
         messages[chatId].push(msgObj);
 
-        // Отправка сообщений отправителю и получателю в реальном времени
+        // Отправка сообщения отправителю
         socket.emit('receive_message', msgObj);
+
+        // Отправка сообщения получателю в реальном времени
         for (let id in users) {
             if (users[id].nickname === recipient) {
                 io.to(id).emit('receive_message', msgObj);
