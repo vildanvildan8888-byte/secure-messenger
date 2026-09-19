@@ -2,8 +2,8 @@
 // Minimal secure messenger backend.
 // Storage: simple JSON file (db.json). Fine for demo/small scale.
 // NOTE for Render: free-tier instances have EPHEMERAL disk — db.json
-// will be wiped on redeploy/restart unless you attach a persistent disk
-// (Render dashboard -> your service -> Disks) or move to a real DB later.
+// AND uploaded files will be wiped on redeploy/restart unless you
+// attach a Persistent Disk (Render dashboard -> service -> Disks).
 
 const express = require('express');
 const http = require('http');
@@ -11,11 +11,27 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const WebSocket = require('ws');
+const multer = require('multer');
 
 const DB_PATH = path.join(__dirname, 'db.json');
+const UPLOADS_DIR = path.join(__dirname, 'uploads');
+if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR);
+
+const upload = multer({
+  storage: multer.diskStorage({
+    destination: (req, file, cb) => cb(null, UPLOADS_DIR),
+    filename: (req, file, cb) => {
+      const safe = Date.now() + '_' + Math.random().toString(36).slice(2) + path.extname(file.originalname);
+      cb(null, safe);
+    }
+  }),
+  limits: { fileSize: 15 * 1024 * 1024 } // 15MB
+});
+
 const app = express();
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
+app.use('/uploads', express.static(UPLOADS_DIR));
 
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server, path: '/ws' });
@@ -24,17 +40,19 @@ const wss = new WebSocket.Server({ server, path: '/ws' });
 
 function loadDb() {
   if (!fs.existsSync(DB_PATH)) {
-    const fresh = { users: {}, conversations: {} };
+    const fresh = { users: {}, conversations: {}, reservedNicknames: {}, activeSos: {} };
     fs.writeFileSync(DB_PATH, JSON.stringify(fresh, null, 2));
     return fresh;
   }
-  return JSON.parse(fs.readFileSync(DB_PATH, 'utf8'));
+  const data = JSON.parse(fs.readFileSync(DB_PATH, 'utf8'));
+  if (!data.activeSos) data.activeSos = {};
+  if (!data.reservedNicknames) data.reservedNicknames = {};
+  return data;
 }
 
 let db = loadDb();
 let saveTimer = null;
 function saveDb() {
-  // Debounce writes so rapid chat messages don't hammer the disk.
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
     fs.writeFileSync(DB_PATH, JSON.stringify(db, null, 2));
@@ -71,6 +89,14 @@ wss.on('connection', (ws, req) => {
   }
   liveSockets.set(nickname, ws);
 
+  // On connect, flush any SOS alerts that arrived while this user was offline.
+  const incoming = db.activeSos[nickname];
+  if (incoming) {
+    for (const from of Object.keys(incoming)) {
+      ws.send(JSON.stringify({ type: 'sos_location', from, ...incoming[from] }));
+    }
+  }
+
   ws.on('message', (raw) => {
     let msg;
     try { msg = JSON.parse(raw); } catch { return; }
@@ -96,11 +122,10 @@ function handleWsMessage(fromNick, msg) {
   if (!user) return;
 
   if (msg.type === 'chat') {
-    const { to, text } = msg;
-    if (!to || !text || !db.users[to]) return;
+    const { to } = msg;
+    const kind = msg.kind || 'text'; // 'text' | 'location' | 'file'
+    if (!to || !db.users[to]) return;
 
-    // Incoming-lock: if recipient has locked incoming messages from
-    // strangers and sender is not already an existing contact, drop it.
     const recipient = db.users[to];
     const alreadyContact = recipient.contacts.includes(fromNick);
     if (recipient.incomingLocked && !alreadyContact) {
@@ -110,23 +135,42 @@ function handleWsMessage(fromNick, msg) {
 
     const id = convId(fromNick, to);
     if (!db.conversations[id]) db.conversations[id] = { participants: [fromNick, to], messages: [] };
-    const message = { from: fromNick, text, ts: Date.now() };
+
+    const message = {
+      from: fromNick, kind, ts: Date.now(),
+      text: msg.text || null,
+      lat: msg.lat, lng: msg.lng, label: msg.label,
+      fileUrl: msg.fileUrl, fileName: msg.fileName, mime: msg.mime,
+    };
     db.conversations[id].messages.push(message);
 
     if (!user.contacts.includes(to)) user.contacts.push(to);
     if (!recipient.contacts.includes(fromNick)) recipient.contacts.push(fromNick);
     saveDb();
 
-    sendTo(to, { type: 'chat', from: fromNick, text, ts: message.ts });
-    sendTo(fromNick, { type: 'chat_ack', to, text, ts: message.ts });
+    sendTo(to, { type: 'chat', ...message });
+    sendTo(fromNick, { type: 'chat_ack', to, ...message });
   }
 
   if (msg.type === 'sos_location') {
-    // Forward this user's live location to their configured SOS contacts.
     const { lat, lng } = msg;
+    const entry = { lat, lng, ts: Date.now(), active: true };
     for (const contact of user.sosContacts || []) {
-      sendTo(contact, { type: 'sos_location', from: fromNick, lat, lng, ts: Date.now() });
+      if (!db.activeSos[contact]) db.activeSos[contact] = {};
+      db.activeSos[contact][fromNick] = entry;
+      sendTo(contact, { type: 'sos_location', from: fromNick, ...entry });
     }
+    saveDb();
+  }
+
+  if (msg.type === 'sos_stop') {
+    for (const contact of user.sosContacts || []) {
+      if (db.activeSos[contact]) {
+        delete db.activeSos[contact][fromNick];
+      }
+      sendTo(contact, { type: 'sos_stopped', from: fromNick });
+    }
+    saveDb();
   }
 }
 
@@ -139,9 +183,7 @@ app.post('/api/register', (req, res) => {
   }
   const clean = nickname.trim();
 
-  // Nickname is permanently reserved once taken — even if the user's
-  // data is later wiped, the nickname slot is never freed.
-  if (db.users[clean] || (db.reservedNicknames && db.reservedNicknames[clean])) {
+  if (db.users[clean] || db.reservedNicknames[clean]) {
     return res.status(409).json({ error: 'Этот никнейм уже существует, введите другой.' });
   }
 
@@ -157,7 +199,6 @@ app.post('/api/register', (req, res) => {
     autoLockSeconds: 30,
     createdAt: Date.now(),
   };
-  if (!db.reservedNicknames) db.reservedNicknames = {};
   db.reservedNicknames[clean] = true;
   saveDb();
 
@@ -192,6 +233,17 @@ app.get('/api/messages/:a/:b', (req, res) => {
   res.json({ messages: conv ? conv.messages : [] });
 });
 
+// ---------- REST: file upload ----------
+
+app.post('/api/upload', upload.single('file'), (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'no file' });
+  res.json({
+    url: `/uploads/${req.file.filename}`,
+    fileName: req.file.originalname,
+    mime: req.file.mimetype,
+  });
+});
+
 // ---------- REST: PIN setup & check ----------
 
 app.post('/api/pin/setup', (req, res) => {
@@ -218,8 +270,6 @@ app.post('/api/pin/check', (req, res) => {
   const isNormal = constantTimeEqual(enteredHash, user.normalPinHash);
   const isDuress = constantTimeEqual(enteredHash, user.duressPinHash);
 
-  // Both branches computed above regardless of order, so timing
-  // doesn't reveal which one matched.
   if (isDuress) return res.json({ result: 'duress' });
   if (isNormal) return res.json({ result: 'normal' });
   res.json({ result: 'invalid' });
@@ -232,24 +282,18 @@ app.post('/api/wipe', (req, res) => {
   const user = db.users[nickname];
   if (!user) return res.status(404).json({ error: 'not found' });
 
-  // 1. Delete server-side conversations involving this user.
   for (const id of Object.keys(db.conversations)) {
     if (db.conversations[id].participants.includes(nickname)) {
       delete db.conversations[id];
     }
   }
 
-  // 2. Lock incoming messages from anyone who isn't already a contact
-  //    the user messages first going forward. Existing contact list is
-  //    cleared too, so nobody currently "gets through" automatically.
   const wipeNoticeContacts = user.wipeNoticeContacts || [];
   user.contacts = [];
   user.incomingLocked = true;
 
   saveDb();
 
-  // 3. Notify the separate "wipe notice" list, independent of the
-  //    (now-empty) conversation data.
   for (const contact of wipeNoticeContacts) {
     sendTo(contact, {
       type: 'wipe_notice',
@@ -258,8 +302,7 @@ app.post('/api/wipe', (req, res) => {
     });
   }
 
-  // Note: SOS is NOT touched here. If a session is active client-side,
-  // it keeps running independently — see the frontend SOS module.
+  // SOS state is untouched here on purpose — see db.activeSos / client watch.
   res.json({ ok: true });
 });
 
@@ -274,14 +317,36 @@ app.post('/api/settings', (req, res) => {
   res.json({ ok: true });
 });
 
+app.get('/api/settings/:nickname', (req, res) => {
+  const user = db.users[req.params.nickname];
+  if (!user) return res.status(404).json({ error: 'not found' });
+  res.json({
+    sosContacts: user.sosContacts || [],
+    wipeNoticeContacts: user.wipeNoticeContacts || [],
+    autoLockSeconds: user.autoLockSeconds,
+    hasPin: !!user.pinSalt,
+  });
+});
+
 app.post('/api/sos/trigger', (req, res) => {
   const { nickname } = req.body || {};
   const user = db.users[nickname];
   if (!user) return res.status(404).json({ error: 'not found' });
-  for (const contact of user.sosContacts || []) {
+  if (!user.sosContacts || !user.sosContacts.length) {
+    return res.status(400).json({ error: 'Сначала добавь доверенные контакты в настройках.' });
+  }
+  const unknown = user.sosContacts.filter(c => !db.users[c]);
+  for (const contact of user.sosContacts) {
     sendTo(contact, { type: 'sos_alert', from: nickname, text: 'Возможно, я в беде.' });
   }
-  res.json({ ok: true });
+  res.json({ ok: true, warning: unknown.length ? `Никнейм(ы) не найдены: ${unknown.join(', ')}` : null });
+});
+
+// Fallback for a recipient who wasn't connected via websocket when SOS fired.
+app.get('/api/sos/incoming/:nickname', (req, res) => {
+  const entries = db.activeSos[req.params.nickname] || {};
+  const list = Object.keys(entries).map(from => ({ from, ...entries[from] }));
+  res.json({ alerts: list });
 });
 
 const PORT = process.env.PORT || 3000;
