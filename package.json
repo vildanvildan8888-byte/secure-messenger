@@ -1,7 +1,7 @@
 {
   "name": "secure-messenger",
-  "version": "1.0.0",
-  "description": "Minimal messenger with nickname login, real-time chat, duress-PIN wipe, and SOS module",
+  "version": "1.1.0",
+  "description": "Minimal messenger with nickname login, real-time chat, duress-PIN wipe, SOS module, files/photos/location",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "express": "^4.19.2",
-    "ws": "^8.17.0"
+    "ws": "^8.17.0",
+    "multer": "^1.4.5-lts.1"
   }
 }
