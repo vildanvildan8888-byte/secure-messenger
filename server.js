@@ -13,9 +13,9 @@ const path = require('path');
 const WebSocket = require('ws');
 const multer = require('multer');
 
-const DB_PATH = path.join(__dirname, 'db.json');
-const UPLOADS_DIR = path.join(__dirname, 'uploads');
-if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR);
+const DB_PATH = process.env.DB_PATH || path.join(__dirname, 'db.json');
+const UPLOADS_DIR = process.env.UPLOADS_DIR || path.join(__dirname, 'uploads');
+if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
 
 const upload = multer({
   storage: multer.diskStorage({
