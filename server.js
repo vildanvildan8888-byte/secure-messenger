@@ -132,7 +132,7 @@ app.get('/', (req, res) => {
                 } else if (enteredPin === wipePin) {
                     // Срабатывает аварийная очистка!
                     switchScreen('messengerScreen');
-                    document.getElementById('chatListContainer.innerHTML = \`<p style="text-align: center; color: #64748b; margin-top: 100px;">Нет активных чатов</p>\`;
+    
                     document.getElementById('chatListContainer').innerHTML = \`<p style="text-align: center; color: #64748b; margin-top: 100px;">Нет активных чатов</p>\`;
                     alert('⚠️ Выполнен аварийный сброс: локальная история и ключи удалены с сервера.');
                     startInactivityTimer();
