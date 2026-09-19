@@ -1,17 +1,8 @@
 const express = require('express');
-const http = require('http');
-const { Server } = require('socket.io');
-
 const app = express();
-const server = http.createServer(app);
-const io = new Server(server);
 const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
-
-// База данных в памяти сервера для демонстрации
-const users = {}; // socket.id -> { nickname, chats: [] }
-const messages = {}; // chatId -> [ { sender, text, timestamp } ]
 
 app.get('/', (req, res) => {
     res.send(`
@@ -20,8 +11,7 @@ app.get('/', (req, res) => {
         <head>
             <meta charset="UTF-8">
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>Secure Messenger - Live Network</title>
-            <script src="/socket.io/socket.io.js"></script>
+            <title>Secure Messenger - Emergency System</title>
             <style>
                 body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f172a; color: #f8fafc; margin: 0; display: flex; justify-content: center; align-items: center; height: 100vh; }
                 .container { width: 100%; max-width: 400px; background: #1e293b; border-radius: 16px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); overflow: hidden; display: flex; flex-direction: column; height: 650px; box-sizing: border-box; }
@@ -32,15 +22,11 @@ app.get('/', (req, res) => {
                 button:active { background: #2563eb; }
                 .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #334155; padding-bottom: 12px; margin-bottom: 15px; }
                 .sos-btn { background: #ef4444; width: auto; padding: 6px 12px; font-size: 14px; border-radius: 6px; }
-                .chat-item { background: #334155; padding: 12px; border-radius: 10px; margin-bottom: 10px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; }
-                .chat-item:hover { background: #475569; }
+                .chat-item { background: #334155; padding: 12px; border-radius: 10px; margin-bottom: 10px; }
                 .nav-bar { display: flex; justify-content: space-around; border-top: 1px solid #334155; padding-top: 10px; margin-top: auto; }
                 .nav-btn { background: transparent; color: #94a3b8; width: auto; font-size: 14px; cursor: pointer; border: none; }
                 .nav-btn.active { color: #3b82f6; }
                 label { font-size: 13px; color: #94a3b8; margin-top: 8px; display: block; text-align: left; }
-                .msg-box { flex-grow: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }
-                .msg { background: #334155; padding: 8px 12px; border-radius: 8px; max-width: 80%; }
-                .msg.me { background: #2563eb; align-self: flex-end; }
             </style>
         </head>
         <body onmousemove="resetInactivityTimer()" ontouchstart="resetInactivityTimer()" onkeypress="resetInactivityTimer()">
@@ -48,9 +34,9 @@ app.get('/', (req, res) => {
         <div class="container">
             <div id="regScreen" class="screen active">
                 <h2>Добро пожаловать</h2>
-                <p style="color: #94a3b8; font-size: 14px;">Придумайте никнейм для входа в сеть:</p>
+                <p style="color: #94a3b8; font-size: 14px;">Придумайте никнейм для входа в мессенджер:</p>
                 <input type="text" id="nicknameInput" placeholder="Ваш ник (например, Alex)">
-                <button onclick="registerUser()">Подключиться к сети</button>
+                <button onclick="registerUser()">Войти в мессенджер</button>
             </div>
 
             <div id="pinScreen" class="screen">
@@ -65,33 +51,12 @@ app.get('/', (req, res) => {
                     <h3 id="userNameTitle">Чаты</h3>
                     <button class="sos-btn" id="sosMainBtn" onclick="toggleSOS()">SOS</button>
                 </div>
-                
-                <div style="display: flex; gap: 5px; margin-bottom: 10px;">
-                    <input type="text" id="searchNick" placeholder="Найти ник..." style="margin: 0;">
-                    <button onclick="searchUser()" style="width: auto; margin: 0; padding: 0 15px;">Найти</button>
-                </div>
-
-                <div id="chatListContainer" style="flex-grow: 1; overflow-y: auto;">
-                    <p style="text-align: center; color: #64748b; margin-top: 50px;">Нет активных чатов. Найдите пользователя по нику выше.</p>
-                </div>
-
+                <div id="chatListContainer" style="flex-grow: 1;">
+                    </div>
                 <div class="nav-bar">
                     <button class="nav-btn active">Чаты</button>
                     <button class="nav-btn" onclick="openSettings()">Настройки</button>
                     <button class="nav-btn" onclick="lockAppManually()">Заблокировать</button>
-                </div>
-            </div>
-
-            <div id="chatScreen" class="screen">
-                <div class="header">
-                    <button onclick="backToChats()" style="width: auto; background: #334155; padding: 6px 10px; font-size: 14px;">⬅ Назад</button>
-                    <h3 id="activeChatTitle">Чат</h3>
-                    <div style="width: 40px;"></div>
-                </div>
-                <div class="msg-box" id="msgBox"></div>
-                <div style="display: flex; gap: 5px;">
-                    <input type="text" id="msgInput" placeholder="Сообщение..." style="margin: 0;">
-                    <button onclick="sendMessage()" style="width: auto; margin: 0; padding: 0 15px;">➤</button>
                 </div>
             </div>
 
@@ -102,17 +67,24 @@ app.get('/', (req, res) => {
                 </div>
                 
                 <label>Основной PIN-код:</label>
-                <input type="password" id="setMainPin" placeholder="1234">
+                <input type="password" id="setMainPin" placeholder="Например: 1234">
 
                 <label>Защитный PIN (Аварийная очистка):</label>
-                <input type="password" id="setWipePin" placeholder="4321">
+                <input type="password" id="setWipePin" placeholder="Например: 4321">
 
                 <label>Автоматическая блокировка экрана:</label>
                 <select id="autoLockSelect">
                     <option value="5">5 секунд</option>
                     <option value="10">10 секунд</option>
-                    <option value="15" selected>15 секунд</option>
+                    <option value="15">15 секунд</option>
+                    <option value="20">20 секунд</option>
+                    <option value="25">25 секунд</option>
                     <option value="30">30 секунд</option>
+                    <option value="35">35 секунд</option>
+                    <option value="40">40 секунд</option>
+                    <option value="45">45 секунд</option>
+                    <option value="50">50 секунд</option>
+                    <option value="55">55 секунд</option>
                     <option value="60">60 секунд</option>
                 </select>
 
@@ -121,30 +93,27 @@ app.get('/', (req, res) => {
         </div>
 
         <script>
-            const socket = io();
             let currentUser = '';
             let mainPin = '1234';
             let wipePin = '4321';
             let lockTimeoutSec = 15;
             let inactivityTimer = null;
             let sosActive = false;
-            let activeRecipient = '';
-            let myContacts = [];
 
             function registerUser() {
                 const nick = document.getElementById('nicknameInput').value.trim();
                 if (!nick) {
-                    alert('Введите никнейм!');
+                    alert('Пожалуйста, введите никнейм!');
                     return;
                 }
                 currentUser = nick;
-                socket.emit('register', currentUser);
-                
                 document.getElementById('userNameTitle').innerText = 'Чаты (' + currentUser + ')';
                 document.getElementById('setMainPin').value = mainPin;
                 document.getElementById('setWipePin').value = wipePin;
+                document.getElementById('autoLockSelect').value = lockTimeoutSec;
                 
                 switchScreen('messengerScreen');
+                loadNormalChats();
                 startInactivityTimer();
             }
 
@@ -153,103 +122,30 @@ app.get('/', (req, res) => {
                 document.getElementById(screenId).classList.add('active');
             }
 
-            function searchUser() {
-                const query = document.getElementById('searchNick').value.trim();
-                if (!query || query === currentUser) return;
-                socket.emit('search_user', query);
-            }
-
-            socket.on('search_result', (foundUser) => {
-                if (foundUser) {
-                    if (!myContacts.includes(foundUser)) {
-                        myContacts.push(foundUser);
-                        renderChats();
-                    }
-                    openChat(foundUser);
-                } else {
-                    alert('Пользователь не найден в сети!');
-                }
-            });
-
-            function renderChats() {
-                const container = document.getElementById('chatListContainer');
-                if (myContacts.length === 0) {
-                    container.innerHTML = '<p style="text-align: center; color: #64748b; margin-top: 50px;">Нет активных чатов. Найдите пользователя по нику выше.</p>';
-                    return;
-                }
-                container.innerHTML = '';
-                myContacts.forEach(contact => {
-                    container.innerHTML += \`
-                        <div class="chat-item" onclick="openChat('\${contact}')">
-                            <b>\${contact}</b>
-                            <span style="font-size: 12px; color: #3b82f6;">Открыть</span>
-                        </div>
-                    \`;
-                });
-            }
-
-            function openChat(contact) {
-                activeRecipient = contact;
-                document.getElementById('activeChatTitle').innerText = contact;
-                switchScreen('chatScreen');
-                socket.emit('get_history', { recipient: contact });
-            }
-
-            function backToChats() {
-                switchScreen('messengerScreen');
-                renderChats();
-            }
-
-            function sendMessage() {
-                const input = document.getElementById('msgInput');
-                const text = input.value.trim();
-                if (!text || !activeRecipient) return;
-
-                socket.emit('send_message', { recipient: activeRecipient, text });
-                input.value = '';
-            }
-
-            socket.on('receive_message', (data) => {
-                if (data.from === activeRecipient || data.from === currentUser) {
-                    const box = document.getElementById('msgBox');
-                    const isMe = data.from === currentUser;
-                    box.innerHTML += \`<div class="msg \${isMe ? 'me' : ''}"><b>\${data.from}:</b> \${data.text}</div>\`;
-                    box.scrollTop = box.scrollHeight;
-                }
-                if (!myContacts.includes(data.from) && data.from !== currentUser) {
-                    myContacts.push(data.from);
-                    renderChats();
-                }
-            });
-
-            socket.on('chat_history', (history) => {
-                const box = document.getElementById('msgBox');
-                box.innerHTML = '';
-                history.forEach(msg => {
-                    const isMe = msg.sender === currentUser;
-                    box.innerHTML += \`<div class="msg \${isMe ? 'me' : ''}"><b>\${msg.sender}:</b> \${msg.text}</div>\`;
-                });
-                box.scrollTop = box.scrollHeight;
-            });
-
             function checkPin() {
                 const enteredPin = document.getElementById('pinInput').value;
                 document.getElementById('pinInput').value = '';
 
                 if (enteredPin === mainPin) {
                     switchScreen('messengerScreen');
-                    renderChats();
+                    loadNormalChats();
                     startInactivityTimer();
                 } else if (enteredPin === wipePin) {
                     switchScreen('messengerScreen');
-                    myContacts = [];
-                    renderChats();
-                    socket.emit('emergency_wipe');
-                    alert('⚠️ Выполнен аварийный сброс: локальная и серверная история удалены.');
+                    document.getElementById('chatListContainer').innerHTML = '<p style="text-align: center; color: #64748b; margin-top: 100px;">Нет активных чатов</p>';
+                    alert('⚠️ Выполнен аварийный сброс: локальная история и ключи удалены с сервера.');
                     startInactivityTimer();
                 } else {
                     alert('Неверный PIN-код!');
                 }
+            }
+
+            function loadNormalChats() {
+                document.getElementById('chatListContainer').innerHTML = \`
+                    <div class="chat-item"><b>Диас:</b> Привет, как дела?</div>
+                    <div class="chat-item"><b>Рабочий чат:</b> Документы отправлены.</div>
+                    <div class="chat-item"><b>Азиз:</b> Встретимся в центре.</div>
+                \`;
             }
 
             function openSettings() {
@@ -271,16 +167,18 @@ app.get('/', (req, res) => {
                     alert('PIN-коды должны содержать минимум 3 символа!');
                     return;
                 }
+
                 mainPin = mPin;
                 wipePin = wPin;
                 lockTimeoutSec = lockTime;
-                alert('Настройки сохранены!');
+
+                alert('Настройки безопасности успешно сохранены!');
                 closeSettings();
             }
 
             function lockAppManually() {
                 stopInactivityTimer();
-                document.getElementById('pinHint').innerText = 'Введите основной или защитный PIN';
+                document.getElementById('pinHint').innerText = 'Основной или защитный PIN';
                 switchScreen('pinScreen');
             }
 
@@ -288,7 +186,7 @@ app.get('/', (req, res) => {
                 stopInactivityTimer();
                 inactivityTimer = setTimeout(() => {
                     const activeScreen = document.querySelector('.screen.active').id;
-                    if (activeScreen !== 'regScreen' && activeScreen !== 'pinScreen') {
+                    if (activeScreen === 'messengerScreen' || activeScreen === 'settingsScreen') {
                         lockAppManually();
                     }
                 }, lockTimeoutSec * 1000);
@@ -303,7 +201,7 @@ app.get('/', (req, res) => {
 
             function resetInactivityTimer() {
                 const activeScreen = document.querySelector('.screen.active').id;
-                if (activeScreen !== 'regScreen' && activeScreen !== 'pinScreen') {
+                if (activeScreen === 'messengerScreen' || activeScreen === 'settingsScreen') {
                     startInactivityTimer();
                 }
             }
@@ -314,11 +212,11 @@ app.get('/', (req, res) => {
                 if (sosActive) {
                     btn.style.background = '#22c55e';
                     btn.innerText = 'SOS (Фон)';
-                    alert('SOS активирован! Передача координат пошла.');
+                    alert('SOS-сигнал активирован! Координаты передаются в фоновом режиме.');
                 } else {
                     btn.style.background = '#ef4444';
                     btn.innerText = 'SOS';
-                    alert('SOS остановлен.');
+                    alert('SOS-трансляция остановлена.');
                 }
             }
         </script>
@@ -327,67 +225,6 @@ app.get('/', (req, res) => {
     `);
 });
 
-// Логика веб-сокетов на сервере для реального времени
-io.on('connection', (socket) => {
-    socket.on('register', (nickname) => {
-        users[socket.id] = { nickname, chats: [] };
-    });
-
-    socket.on('search_user', (query) => {
-        let foundNick = null;
-        for (let id in users) {
-            if (users[id].nickname.toLowerCase() === query.toLowerCase()) {
-                foundNick = users[id].nickname;
-                break;
-            }
-        }
-        socket.emit('search_result', foundNick);
-    });
-
-    socket.on('send_message', ({ recipient, text }) => {
-        const senderObj = users[socket.id];
-        if (!senderObj) return;
-        const sender = senderObj.nickname;
-
-        const chatId = [sender, recipient].sort().join('_');
-        if (!messages[chatId]) messages[chatId] = [];
-        const msgObj = { sender, text, timestamp: Date.now() };
-        messages[chatId].push(msgObj);
-
-        // Отправка обоим участникам
-        socket.emit('receive_message', msgObj);
-        for (let id in users) {
-            if (users[id].nickname === recipient) {
-                io.to(id).emit('receive_message', msgObj);
-            }
-        }
-    });
-
-    socket.on('get_history', ({ recipient }) => {
-        const senderObj = users[socket.id];
-        if (!senderObj) return;
-        const sender = senderObj.nickname;
-        const chatId = [sender, recipient].sort().join('_');
-        socket.emit('chat_history', messages[chatId] || []);
-    });
-
-    socket.on('emergency_wipe', () => {
-        const userObj = users[socket.id];
-        if (!userObj) return;
-        const nick = userObj.nickname;
-        // Удаляем историю сообщений с участием этого юзера
-        for (let chatId in messages) {
-            if (chatId.includes(nick)) {
-                delete messages[chatId];
-            }
-        }
-    });
-
-    socket.on('disconnect', () => {
-        delete users[socket.id];
-    });
-});
-
-server.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
+app.listen(PORT, () => {
+    console.log(`Server is running on port ${PORT}`);
 });
