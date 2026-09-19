@@ -1,1 +1,460 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Messenger</title>
+<style>
+  :root {
+    --bg: #ffffff;
+    --text: #1a1a1a;
+    --muted: #6b6b6b;
+    --border: #e5e5e5;
+    --accent: #1a1a1a;
+    --danger: #c0392b;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+  .screen { display: none; flex-direction: column; height: 100%; }
+  .screen.active { display: flex; }
+  .center { justify-content: center; align-items: center; }
+
+  input {
+    padding: 12px 14px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-size: 15px;
+    width: 100%;
+  }
+  button {
+    padding: 12px 16px;
+    border: none;
+    border-radius: 8px;
+    background: var(--accent);
+    color: #fff;
+    font-size: 15px;
+    cursor: pointer;
+  }
+  button.secondary { background: #f2f2f2; color: var(--text); }
+  button.danger { background: var(--danger); }
+
+  .topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  .topbar .nickname { font-weight: 600; }
+  .sos-btn { background: var(--danger); padding: 8px 14px; border-radius: 20px; font-size: 13px; }
+
+  .search-bar { padding: 10px 16px; border-bottom: 1px solid var(--border); }
+
+  .chat-list { flex: 1; overflow-y: auto; }
+  .chat-item {
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--border);
+    cursor: pointer;
+    display: flex;
+    justify-content: space-between;
+  }
+  .chat-item:hover { background: #fafafa; }
+  .chat-item .name { font-weight: 600; }
+  .chat-item .preview { color: var(--muted); font-size: 13px; margin-top: 2px; }
+
+  .bottom-nav {
+    display: flex;
+    border-top: 1px solid var(--border);
+  }
+  .bottom-nav button { flex: 1; border-radius: 0; background: #fff; color: var(--text); padding: 14px; font-size: 13px; }
+  .bottom-nav button.lock { color: var(--danger); }
+
+  .chat-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  .chat-header .back { cursor: pointer; font-size: 20px; }
+
+  .messages { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 8px; }
+  .msg { max-width: 70%; padding: 8px 12px; border-radius: 12px; font-size: 14px; }
+  .msg.mine { align-self: flex-end; background: #1a1a1a; color: #fff; }
+  .msg.theirs { align-self: flex-start; background: #f0f0f0; color: #1a1a1a; }
+
+  .composer { display: flex; gap: 8px; padding: 10px 16px; border-top: 1px solid var(--border); }
+  .composer input { flex: 1; }
+
+  .settings-body { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 16px; }
+  .settings-body label { font-size: 13px; color: var(--muted); display: block; margin-bottom: 4px; }
+  .field { display: flex; flex-direction: column; gap: 4px; }
+  select { padding: 12px; border-radius: 8px; border: 1px solid var(--border); font-size: 15px; }
+
+  .error-text { color: var(--danger); font-size: 13px; min-height: 18px; }
+  .stack { display: flex; flex-direction: column; gap: 12px; width: 100%; max-width: 360px; padding: 24px; }
+  h1 { font-size: 20px; margin: 0 0 4px 0; }
+</style>
+</head>
+<body>
+
+<!-- LOGIN / REGISTER -->
+<div id="screen-login" class="screen active center">
+  <div class="stack">
+    <h1>Вход в сеть</h1>
+    <input id="login-nickname" placeholder="Придумайте никнейм" autocomplete="off">
+    <button onclick="register()">Войти в сеть</button>
+    <div class="error-text" id="login-error"></div>
+  </div>
+</div>
+
+<!-- LOCK SCREEN -->
+<div id="screen-lock" class="screen center">
+  <div class="stack">
+    <h1>Введите PIN</h1>
+    <input id="lock-pin" type="password" inputmode="numeric" placeholder="PIN-код" autocomplete="off">
+    <button onclick="submitPin()">Разблокировать</button>
+    <div class="error-text" id="lock-error"></div>
+  </div>
+</div>
+
+<!-- MAIN: CHAT LIST -->
+<div id="screen-main" class="screen">
+  <div class="topbar">
+    <span class="nickname" id="main-nickname"></span>
+    <button class="sos-btn" onclick="triggerSos()">SOS</button>
+  </div>
+  <div class="search-bar">
+    <input id="search-input" placeholder="Поиск по никнейму" oninput="onSearch()">
+  </div>
+  <div class="chat-list" id="chat-list"></div>
+  <div class="bottom-nav">
+    <button onclick="showScreen('screen-main')">Чаты</button>
+    <button onclick="openSettings()">Настройки</button>
+    <button class="lock" onclick="lockNow()">Заблокировать</button>
+  </div>
+</div>
+
+<!-- CHAT -->
+<div id="screen-chat" class="screen">
+  <div class="chat-header">
+    <span class="back" onclick="showScreen('screen-main')">←</span>
+    <span id="chat-with"></span>
+  </div>
+  <div class="messages" id="messages"></div>
+  <div class="composer">
+    <input id="message-input" placeholder="Сообщение..." onkeydown="if(event.key==='Enter') sendMessage()">
+    <button onclick="sendMessage()">➤</button>
+  </div>
+</div>
+
+<!-- SETTINGS -->
+<div id="screen-settings" class="screen">
+  <div class="chat-header">
+    <span class="back" onclick="showScreen('screen-main')">←</span>
+    <span>Настройки безопасности</span>
+  </div>
+  <div class="settings-body">
+    <div class="field">
+      <label>Основной PIN</label>
+      <input id="set-normal-pin" type="password" inputmode="numeric">
+    </div>
+    <div class="field">
+      <label>Защитный PIN (аварийное стирание)</label>
+      <input id="set-duress-pin" type="password" inputmode="numeric">
+    </div>
+    <div class="field">
+      <label>Автоблокировка</label>
+      <select id="set-autolock">
+        <option value="0">Нет</option>
+        <option value="5">5 секунд</option>
+        <option value="10">10 секунд</option>
+        <option value="15">15 секунд</option>
+        <option value="30" selected>30 секунд</option>
+        <option value="60">60 секунд</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>SOS-контакты (никнеймы через запятую)</label>
+      <input id="set-sos-contacts" placeholder="друг1, друг2">
+    </div>
+    <div class="field">
+      <label>Контакты уведомления об очистке (никнеймы через запятую)</label>
+      <input id="set-wipe-contacts" placeholder="друг1, друг2">
+    </div>
+    <button onclick="saveSettings()">Сохранить</button>
+    <div class="error-text" id="settings-status"></div>
+  </div>
+</div>
+
+<script>
+let state = {
+  nickname: localStorage.getItem('nickname') || null,
+  currentChat: null,
+  ws: null,
+  autoLockSeconds: 30,
+  lockTimer: null,
+  sosActive: false,
+  sosWatchId: null,
+};
+
+function showScreen(id) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+}
+
+// ---------- Registration / login ----------
+
+async function register() {
+  const nickname = document.getElementById('login-nickname').value.trim();
+  const errEl = document.getElementById('login-error');
+  errEl.textContent = '';
+  if (!nickname) { errEl.textContent = 'Введите никнейм.'; return; }
+
+  const res = await fetch('/api/register', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ nickname })
+  });
+  const data = await res.json();
+  if (!res.ok) { errEl.textContent = data.error; return; }
+
+  localStorage.setItem('nickname', nickname);
+  state.nickname = nickname;
+  enterApp();
+}
+
+function enterApp() {
+  document.getElementById('main-nickname').textContent = state.nickname;
+  connectWs();
+  loadConversations();
+  showScreen('screen-main');
+  resetAutoLockTimer();
+}
+
+// Restore session on refresh (SPA-style persistence)
+window.addEventListener('load', () => {
+  if (state.nickname) enterApp();
+  ['click','keydown','touchstart'].forEach(evt =>
+    document.addEventListener(evt, resetAutoLockTimer)
+  );
+});
+
+// ---------- WebSocket ----------
+
+function connectWs() {
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  state.ws = new WebSocket(`${proto}://${location.host}/ws?nickname=${encodeURIComponent(state.nickname)}`);
+  state.ws.onmessage = (evt) => {
+    const msg = JSON.parse(evt.data);
+    if (msg.type === 'chat') {
+      if (state.currentChat === msg.from) appendMessage(msg.from, msg.text, false);
+      loadConversations();
+    }
+    if (msg.type === 'chat_ack') {
+      loadConversations();
+    }
+    if (msg.type === 'sos_alert') {
+      alert(`⚠️ ${msg.from}: ${msg.text}`);
+    }
+    if (msg.type === 'sos_location') {
+      console.log(`Локация от ${msg.from}: ${msg.lat}, ${msg.lng}`);
+    }
+    if (msg.type === 'wipe_notice') {
+      alert(msg.text);
+    }
+    if (msg.type === 'error') {
+      alert(msg.error);
+    }
+  };
+  state.ws.onclose = () => setTimeout(connectWs, 2000);
+}
+
+// ---------- Search & chat list ----------
+
+let searchTimeout;
+function onSearch() {
+  clearTimeout(searchTimeout);
+  searchTimeout = setTimeout(async () => {
+    const q = document.getElementById('search-input').value.trim();
+    if (!q) { loadConversations(); return; }
+    const res = await fetch(`/api/search?q=${encodeURIComponent(q)}`);
+    const data = await res.json();
+    renderList(data.results.map(n => ({ nickname: n, lastMessage: null })));
+  }, 250);
+}
+
+async function loadConversations() {
+  const res = await fetch(`/api/conversations/${encodeURIComponent(state.nickname)}`);
+  const data = await res.json();
+  renderList(data.conversations);
+}
+
+function renderList(items) {
+  const list = document.getElementById('chat-list');
+  list.innerHTML = '';
+  items.forEach(item => {
+    const div = document.createElement('div');
+    div.className = 'chat-item';
+    div.onclick = () => openChat(item.nickname);
+    div.innerHTML = `
+      <div>
+        <div class="name">${escapeHtml(item.nickname)}</div>
+        <div class="preview">${item.lastMessage ? escapeHtml(item.lastMessage.text) : ''}</div>
+      </div>`;
+    list.appendChild(div);
+  });
+}
+
+// ---------- Chat screen ----------
+
+async function openChat(nickname) {
+  state.currentChat = nickname;
+  document.getElementById('chat-with').textContent = nickname;
+  const res = await fetch(`/api/messages/${encodeURIComponent(state.nickname)}/${encodeURIComponent(nickname)}`);
+  const data = await res.json();
+  const box = document.getElementById('messages');
+  box.innerHTML = '';
+  data.messages.forEach(m => appendMessage(m.from, m.text, m.from === state.nickname));
+  showScreen('screen-chat');
+}
+
+function appendMessage(from, text, mine) {
+  const box = document.getElementById('messages');
+  const div = document.createElement('div');
+  div.className = `msg ${mine ? 'mine' : 'theirs'}`;
+  div.textContent = text;
+  box.appendChild(div);
+  box.scrollTop = box.scrollHeight;
+}
+
+function sendMessage() {
+  const input = document.getElementById('message-input');
+  const text = input.value.trim();
+  if (!text || !state.currentChat) return;
+  state.ws.send(JSON.stringify({ type: 'chat', to: state.currentChat, text }));
+  appendMessage(state.nickname, text, true);
+  input.value = '';
+}
+
+function escapeHtml(s) {
+  return (s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+// ---------- Settings ----------
+
+function openSettings() { showScreen('screen-settings'); }
+
+async function saveSettings() {
+  const normalPin = document.getElementById('set-normal-pin').value.trim();
+  const duressPin = document.getElementById('set-duress-pin').value.trim();
+  const autoLockSeconds = parseInt(document.getElementById('set-autolock').value, 10);
+  const sosContacts = document.getElementById('set-sos-contacts').value.split(',').map(s=>s.trim()).filter(Boolean);
+  const wipeNoticeContacts = document.getElementById('set-wipe-contacts').value.split(',').map(s=>s.trim()).filter(Boolean);
+  const statusEl = document.getElementById('settings-status');
+
+  if (normalPin && duressPin) {
+    const res = await fetch('/api/pin/setup', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ nickname: state.nickname, normalPin, duressPin })
+    });
+    const data = await res.json();
+    if (!res.ok) { statusEl.textContent = data.error; return; }
+  }
+
+  await fetch('/api/settings', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ nickname: state.nickname, sosContacts, wipeNoticeContacts, autoLockSeconds: autoLockSeconds || null })
+  });
+
+  state.autoLockSeconds = autoLockSeconds || 0;
+  statusEl.style.color = '#1a1a1a';
+  statusEl.textContent = 'Сохранено.';
+  resetAutoLockTimer();
+}
+
+// ---------- Lock / PIN ----------
+
+function lockNow() {
+  showScreen('screen-lock');
+}
+
+function resetAutoLockTimer() {
+  clearTimeout(state.lockTimer);
+  if (!state.autoLockSeconds) return;
+  if (!state.nickname) return;
+  if (document.getElementById('screen-lock').classList.contains('active')) return;
+  state.lockTimer = setTimeout(lockNow, state.autoLockSeconds * 1000);
+}
+
+async function submitPin() {
+  const pin = document.getElementById('lock-pin').value;
+  const errEl = document.getElementById('lock-error');
+  const res = await fetch('/api/pin/check', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ nickname: state.nickname, pin })
+  });
+  const data = await res.json();
+  document.getElementById('lock-pin').value = '';
+
+  if (data.result === 'invalid') {
+    errEl.textContent = 'Неверный PIN.';
+    return;
+  }
+  if (data.result === 'normal') {
+    errEl.textContent = '';
+    enterApp();
+    return;
+  }
+  if (data.result === 'duress') {
+    // Wipe, but show an interface identical to a normal, empty unlock —
+    // no visible sign that anything unusual happened.
+    await fetch('/api/wipe', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ nickname: state.nickname })
+    });
+    document.getElementById('chat-list').innerHTML = '';
+    errEl.textContent = '';
+    enterApp(); // SOS (if active) keeps running regardless — see below.
+  }
+}
+
+// ---------- SOS (independent of chat/wipe state) ----------
+
+function triggerSos() {
+  if (!confirm('Отправить сигнал SOS доверенным контактам?')) return;
+  fetch('/api/sos/trigger', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ nickname: state.nickname })
+  });
+  startSosLocationSharing();
+  state.sosActive = true;
+}
+
+function startSosLocationSharing() {
+  if (state.sosWatchId !== null || !navigator.geolocation) return;
+  state.sosWatchId = navigator.geolocation.watchPosition((pos) => {
+    if (state.ws && state.ws.readyState === WebSocket.OPEN) {
+      state.ws.send(JSON.stringify({
+        type: 'sos_location',
+        lat: pos.coords.latitude,
+        lng: pos.coords.longitude
+      }));
+    }
+  }, () => {}, { enableHighAccuracy: true, maximumAge: 5000 });
+}
+
+// Note: startSosLocationSharing/watchPosition is never stopped by the
+// wipe flow above — only an explicit "stop SOS" action (not yet wired
+// to a button here) would call navigator.geolocation.clearWatch.
+</script>
+</body>
+</html>
 
