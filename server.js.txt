@@ -1,0 +1,56 @@
+const express = require('express');
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+app.use(express.json());
+
+// Простая главная страница с прототипом мессенджера
+app.get('/', (req, res) => {
+    res.send(`
+        <!DOCTYPE html>
+        <html lang="ru">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Secure Messenger</title>
+            <style>
+                body { font-family: sans-serif; background: #0f172a; color: #fff; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
+                .box { background: #1e293b; padding: 30px; border-radius: 12px; width: 320px; text-align: center; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
+                input { width: 100%; padding: 12px; font-size: 18px; margin: 15px 0; border-radius: 8px; border: none; background: #334155; color: #fff; text-align: center; box-sizing: border-box; }
+                button { background: #3b82f6; color: white; border: none; padding: 12px; width: 100%; border-radius: 8px; font-size: 16px; cursor: pointer; }
+                .info { font-size: 13px; color: #94a3b8; margin-top: 10px; }
+            </style>
+        </head>
+        <body>
+            <div class="box">
+                <h2>Secure Messenger</h2>
+                <p>Введите PIN-код:</p>
+                <input type="password" id="pinInput" maxlength="4" placeholder="••••">
+                <button onclick="login()">Войти</button>
+                <div class="info">Основной: 1234 | Очистка: 4321</div>
+                <div id="result" style="margin-top: 20px; font-weight: bold;"></div>
+            </div>
+            <script>
+                function login() {
+                    const pin = document.getElementById('pinInput').value;
+                    const res = document.getElementById('result');
+                    if (pin === '1234') {
+                        res.style.color = '#22c55e';
+                        res.innerText = 'Обычный режим: чаты загружены.';
+                    } else if (pin === '4321') {
+                        res.style.color = '#ef4444';
+                        res.innerText = 'Аварийная очистка: данные стерты!';
+                    } else {
+                        res.style.color = '#f59e0b';
+                        res.innerText = 'Неверный PIN.';
+                    }
+                }
+            </script>
+        </body>
+        </html>
+    `);
+});
+
+app.listen(PORT, () => {
+    console.log(`Server is running on port ${PORT}`);
+});
