@@ -76,13 +76,15 @@ const wss = new WebSocket.Server({ server, path: '/ws' });
 
 function loadDb() {
   if (!fs.existsSync(DB_PATH)) {
-    const fresh = { users: {}, conversations: {}, reservedNicknames: {}, activeSos: {} };
+    const fresh = { users: {}, conversations: {}, reservedNicknames: {}, activeSos: {}, groups: {}, groupMessages: {} };
     fs.writeFileSync(DB_PATH, JSON.stringify(fresh, null, 2));
     return fresh;
   }
   const data = JSON.parse(fs.readFileSync(DB_PATH, 'utf8'));
   if (!data.activeSos) data.activeSos = {};
   if (!data.reservedNicknames) data.reservedNicknames = {};
+  if (!data.groups) data.groups = {};
+  if (!data.groupMessages) data.groupMessages = {};
   return data;
 }
 
@@ -193,6 +195,38 @@ function handleWsMessage(fromNick, msg) {
     }
   }
 
+  if (msg.type === 'group_chat') {
+    const { groupId } = msg;
+    const kind = msg.kind || 'text';
+    const group = db.groups[groupId];
+    if (!group || !group.members.includes(fromNick)) return;
+
+    // Channels: only the owner/admins can post; members are read-only.
+    const canPost = group.type === 'group' || group.owner === fromNick || (group.admins || []).includes(fromNick);
+    if (!canPost) {
+      sendTo(fromNick, { type: 'error', error: 'В этом канале писать может только владелец.' });
+      return;
+    }
+
+    if (!db.groupMessages[groupId]) db.groupMessages[groupId] = [];
+    const message = {
+      from: fromNick, kind, ts: Date.now(),
+      text: msg.text || null,
+      lat: msg.lat, lng: msg.lng, label: msg.label,
+      fileUrl: msg.fileUrl, fileName: msg.fileName, mime: msg.mime,
+    };
+    db.groupMessages[groupId].push(message);
+    saveDb();
+
+    for (const member of group.members) {
+      const delivered = sendTo(member, { type: 'group_chat', groupId, groupName: group.name, ...message });
+      if (member !== fromNick && !delivered) {
+        const preview = kind === 'text' ? message.text : (kind === 'location' ? '📍 Локация' : '📎 Файл');
+        sendPush(member, { title: `${group.name}`, body: `${fromNick}: ${preview}`, tag: 'group-' + groupId, url: '/' });
+      }
+    }
+  }
+
   if (msg.type === 'sos_location') {
     const { lat, lng } = msg;
     const entry = { lat, lng, ts: Date.now(), active: true };
@@ -272,6 +306,95 @@ app.get('/api/conversations/:nickname', (req, res) => {
     return { nickname: c, lastMessage: last };
   });
   res.json({ conversations: list });
+});
+
+// Unified, Telegram-style chat list: direct chats + groups/channels,
+// sorted by the timestamp of the most recent message (most recent first).
+app.get('/api/chatlist/:nickname', (req, res) => {
+  const { nickname } = req.params;
+  const user = db.users[nickname];
+  if (!user) return res.status(404).json({ error: 'not found' });
+
+  const items = [];
+
+  for (const c of user.contacts || []) {
+    const id = convId(nickname, c);
+    const conv = db.conversations[id];
+    const last = conv && conv.messages.length ? conv.messages[conv.messages.length - 1] : null;
+    items.push({
+      type: 'dm', id: c, name: c,
+      lastMessage: last, lastTs: last ? last.ts : 0,
+    });
+  }
+
+  for (const groupId of Object.keys(db.groups)) {
+    const group = db.groups[groupId];
+    if (!group.members.includes(nickname)) continue;
+    const msgs = db.groupMessages[groupId] || [];
+    const last = msgs.length ? msgs[msgs.length - 1] : null;
+    items.push({
+      type: group.type, id: groupId, name: group.name,
+      lastMessage: last, lastTs: last ? last.ts : group.createdAt,
+      memberCount: group.members.length,
+    });
+  }
+
+  items.sort((a, b) => b.lastTs - a.lastTs);
+  res.json({ chats: items });
+});
+
+// ---------- REST: groups & channels ----------
+
+app.post('/api/groups', (req, res) => {
+  const { nickname, name, type, members } = req.body || {};
+  const user = db.users[nickname];
+  if (!user) return res.status(404).json({ error: 'not found' });
+  if (!name || !name.trim()) return res.status(400).json({ error: 'Введите название.' });
+  if (!['group', 'channel'].includes(type)) return res.status(400).json({ error: 'Неверный тип.' });
+
+  const memberList = Array.isArray(members) ? members.filter(m => db.users[m]) : [];
+  const groupId = crypto.randomBytes(8).toString('hex');
+  db.groups[groupId] = {
+    id: groupId,
+    name: name.trim(),
+    type,
+    owner: nickname,
+    admins: [nickname],
+    members: Array.from(new Set([nickname, ...memberList])),
+    createdAt: Date.now(),
+  };
+  db.groupMessages[groupId] = [];
+  saveDb();
+
+  // Notify members currently online so their chat list updates immediately.
+  for (const m of db.groups[groupId].members) {
+    if (m !== nickname) sendTo(m, { type: 'group_created', group: db.groups[groupId] });
+  }
+
+  res.json({ ok: true, group: db.groups[groupId] });
+});
+
+app.get('/api/groups/:groupId/messages', (req, res) => {
+  const { groupId } = req.params;
+  const { nickname } = req.query;
+  const group = db.groups[groupId];
+  if (!group || !group.members.includes(nickname)) return res.status(404).json({ error: 'not found' });
+  res.json({ group, messages: db.groupMessages[groupId] || [] });
+});
+
+app.post('/api/groups/:groupId/members', (req, res) => {
+  const { groupId } = req.params;
+  const { nickname, addMember } = req.body || {};
+  const group = db.groups[groupId];
+  if (!group) return res.status(404).json({ error: 'not found' });
+  if (group.owner !== nickname && !(group.admins || []).includes(nickname)) {
+    return res.status(403).json({ error: 'Только владелец/админ может добавлять участников.' });
+  }
+  if (!db.users[addMember]) return res.status(404).json({ error: 'Пользователь не найден.' });
+  if (!group.members.includes(addMember)) group.members.push(addMember);
+  saveDb();
+  sendTo(addMember, { type: 'group_created', group });
+  res.json({ ok: true, group });
 });
 
 app.get('/api/messages/:a/:b', (req, res) => {
