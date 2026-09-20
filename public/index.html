@@ -12,8 +12,10 @@
     --text: #1a1a1a;
     --muted: #6b6b6b;
     --border: #e5e5e5;
-    --accent: #1a1a1a;
+    --accent: #2b8cff;
+    --accent-dark: #1a1a1a;
     --danger: #c0392b;
+    --composer-bg: #f4f4f5;
     --safe-top: env(safe-area-inset-top, 0px);
     --safe-bottom: env(safe-area-inset-bottom, 0px);
   }
@@ -29,8 +31,6 @@
     justify-content: center;
     padding: 6px;
   }
-  /* App shell: full width on phones (with a small breathing margin),
-     phone-sized frame on wide screens */
   #app {
     width: 100%;
     max-width: 480px;
@@ -47,20 +47,21 @@
   .screen.active { display: flex; }
   .center { justify-content: center; align-items: center; }
 
-  input, select {
+  input, select, textarea {
     padding: 12px 14px;
     border: 1px solid var(--border);
     border-radius: 8px;
-    font-size: 16px; /* >=16px prevents iOS auto-zoom on focus */
+    font-size: 16px;
     width: 100%;
     background: #fff;
     color: var(--text);
+    font-family: inherit;
   }
   button {
     padding: 12px 16px;
     border: none;
     border-radius: 8px;
-    background: var(--accent);
+    background: var(--accent-dark);
     color: #fff;
     font-size: 15px;
     cursor: pointer;
@@ -68,16 +69,24 @@
   }
   button.secondary { background: #f2f2f2; color: var(--text); }
   button.danger { background: var(--danger); }
+  button:disabled { opacity: 0.5; cursor: default; }
 
   .topbar {
     display: flex;
     align-items: center;
     justify-content: space-between;
+    gap: 8px;
     padding: calc(12px + var(--safe-top)) 16px 12px;
     border-bottom: 1px solid var(--border);
     flex-shrink: 0;
   }
   .topbar .nickname { font-weight: 600; font-size: 15px; }
+  .topbar-actions { display: flex; gap: 6px; align-items: center; }
+  .icon-btn {
+    background: #f2f2f2; color: var(--text); border-radius: 50%;
+    width: 36px; height: 36px; min-height: 36px; padding: 0;
+    display: flex; align-items: center; justify-content: center; font-size: 18px;
+  }
   .sos-btn { background: var(--danger); padding: 8px 14px; border-radius: 20px; font-size: 13px; min-height: 36px; }
 
   .sos-banner {
@@ -94,15 +103,26 @@
 
   .chat-list { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; }
   .chat-item {
-    padding: 14px 16px;
+    padding: 12px 16px;
     border-bottom: 1px solid var(--border);
     cursor: pointer;
     display: flex;
-    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
   }
   .chat-item:active { background: #fafafa; }
-  .chat-item .name { font-weight: 600; }
-  .chat-item .preview { color: var(--muted); font-size: 13px; margin-top: 2px; }
+  .chat-avatar {
+    width: 44px; height: 44px; border-radius: 50%; flex-shrink: 0;
+    background: #e9ecf3; color: #3a4a6b; display: flex; align-items: center; justify-content: center;
+    font-weight: 700; font-size: 16px;
+  }
+  .chat-avatar.group { background: #e7f3ea; color: #2c7a3f; }
+  .chat-avatar.channel { background: #fdecec; color: var(--danger); }
+  .chat-item-body { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+  .chat-item-top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+  .chat-item .name { font-weight: 600; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .chat-item .time { color: var(--muted); font-size: 11px; flex-shrink: 0; }
+  .chat-item .preview { color: var(--muted); font-size: 13px; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
   .bottom-nav {
     display: flex;
@@ -122,27 +142,86 @@
     flex-shrink: 0;
   }
   .chat-header .back { cursor: pointer; font-size: 22px; padding: 4px 8px 4px 0; }
+  .chat-header .titles { display: flex; flex-direction: column; }
+  .chat-header .titles .sub { font-size: 12px; color: var(--muted); }
 
-  .messages { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 16px; display: flex; flex-direction: column; gap: 8px; }
-  .msg { max-width: 78%; padding: 8px 12px; border-radius: 14px; font-size: 14px; word-break: break-word; }
-  .msg.mine { align-self: flex-end; background: #1a1a1a; color: #fff; }
-  .msg.theirs { align-self: flex-start; background: #f0f0f0; color: #1a1a1a; }
+  .messages { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 12px 12px 4px; display: flex; flex-direction: column; gap: 2px; background: #f7f7f8; }
+  .msg-row { display: flex; flex-direction: column; margin: 4px 0; max-width: 78%; }
+  .msg-row.mine { align-self: flex-end; align-items: flex-end; }
+  .msg-row.theirs { align-self: flex-start; align-items: flex-start; }
+  .msg-sender { font-size: 12px; font-weight: 600; color: var(--accent); margin: 0 4px 2px; }
+  .msg {
+    padding: 8px 12px 6px;
+    border-radius: 16px;
+    font-size: 14px;
+    word-break: break-word;
+    position: relative;
+  }
+  .msg-row.mine .msg { background: var(--accent-dark); color: #fff; border-bottom-right-radius: 4px; }
+  .msg-row.theirs .msg { background: #fff; color: #1a1a1a; border-bottom-left-radius: 4px; box-shadow: 0 0 0 1px var(--border); }
   .msg a { color: inherit; text-decoration: underline; }
   .msg img { max-width: 100%; border-radius: 8px; display: block; margin-top: 4px; }
+  .msg-time { font-size: 10px; opacity: 0.65; margin-top: 3px; text-align: right; }
 
+  /* Telegram-style composer */
   .composer {
     display: flex;
     flex-direction: column;
-    gap: 6px;
-    padding: 8px 12px calc(8px + var(--safe-bottom));
+    padding: 8px 8px calc(8px + var(--safe-bottom));
     border-top: 1px solid var(--border);
+    background: var(--composer-bg);
     flex-shrink: 0;
+    position: relative;
   }
-  .composer-actions { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px; }
-  .composer-actions button { flex-shrink: 0; padding: 8px 10px; font-size: 13px; background: #f2f2f2; color: var(--text); min-height: 36px; }
-  .composer-row { display: flex; gap: 8px; }
-  .composer-row input { flex: 1; }
-  .composer-row button { flex-shrink: 0; min-width: 44px; }
+  .composer-row { display: flex; align-items: flex-end; gap: 6px; }
+  .composer-pill {
+    flex: 1;
+    display: flex;
+    align-items: flex-end;
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: 22px;
+    padding: 6px 6px 6px 14px;
+  }
+  #message-input {
+    flex: 1;
+    border: none;
+    padding: 6px 4px;
+    font-size: 16px;
+    resize: none;
+    max-height: 120px;
+    line-height: 1.3;
+    background: transparent;
+  }
+  #message-input:focus { outline: none; }
+  .round-btn {
+    width: 40px; height: 40px; min-height: 40px; border-radius: 50%; padding: 0;
+    display: flex; align-items: center; justify-content: center; font-size: 18px; flex-shrink: 0;
+  }
+  .attach-btn { background: #eceef0; color: var(--text); }
+  .send-btn { background: var(--accent); color: #fff; }
+  .send-btn:disabled { background: #d7d7d9; }
+
+  .attach-menu {
+    display: none;
+    position: absolute;
+    bottom: calc(100% + 6px);
+    left: 8px;
+    background: #fff;
+    border-radius: 14px;
+    box-shadow: 0 2px 16px rgba(0,0,0,0.15);
+    overflow: hidden;
+    z-index: 10;
+    min-width: 200px;
+  }
+  .attach-menu.active { display: block; }
+  .attach-menu button {
+    display: flex; align-items: center; gap: 10px; width: 100%;
+    background: #fff; color: var(--text); border-radius: 0; text-align: left;
+    padding: 12px 16px; font-size: 14px; border-bottom: 1px solid var(--border);
+  }
+  .attach-menu button:last-child { border-bottom: none; }
+  .attach-menu button:active { background: #f5f5f5; }
 
   .settings-body { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 16px; padding-bottom: calc(16px + var(--safe-bottom)); }
   .settings-body label { font-size: 13px; color: var(--muted); display: block; margin-bottom: 4px; }
@@ -152,8 +231,8 @@
   .stack { display: flex; flex-direction: column; gap: 12px; width: 100%; max-width: 320px; padding: 24px; }
   h1 { font-size: 20px; margin: 0 0 4px 0; }
 
-  /* Map picker modal */
-  #map-modal {
+  /* Generic full-screen modal (map picker, new group) */
+  .modal {
     display: none;
     position: absolute;
     inset: 0;
@@ -161,22 +240,31 @@
     z-index: 50;
     flex-direction: column;
   }
-  #map-modal.active { display: flex; }
+  .modal.active { display: flex; }
   #map-container { flex: 1; }
-  .map-modal-bar {
+  .modal-bar {
     display: flex;
     justify-content: space-between;
+    align-items: center;
     gap: 8px;
     padding: calc(10px + var(--safe-top)) 12px 10px;
     border-bottom: 1px solid var(--border);
   }
-  .map-modal-footer {
+  .modal-footer {
     display: flex;
     gap: 8px;
     padding: 10px 12px calc(10px + var(--safe-bottom));
     border-top: 1px solid var(--border);
   }
-  .map-modal-footer button { flex: 1; }
+  .modal-footer button { flex: 1; }
+  .modal-body { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 14px; }
+
+  .type-toggle { display: flex; gap: 8px; }
+  .type-toggle button { flex: 1; background: #f2f2f2; color: var(--text); }
+  .type-toggle button.selected { background: var(--accent-dark); color: #fff; }
+
+  .member-row { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--border); }
+  .member-row input[type=checkbox] { width: 18px; height: 18px; }
 </style>
 </head>
 <body>
@@ -206,7 +294,10 @@
 <div id="screen-main" class="screen">
   <div class="topbar">
     <span class="nickname" id="main-nickname"></span>
-    <button class="sos-btn" id="sos-toggle-btn" onclick="toggleSos()">SOS</button>
+    <div class="topbar-actions">
+      <button class="icon-btn" onclick="openNewGroupModal()" title="Новая группа/канал">➕</button>
+      <button class="sos-btn" id="sos-toggle-btn" onclick="toggleSos()">SOS</button>
+    </div>
   </div>
   <div class="sos-banner" id="sos-banner" style="display:none;"></div>
   <div class="search-bar">
@@ -230,23 +321,31 @@
   <div class="chat-list" id="contacts-list"></div>
 </div>
 
-<!-- CHAT -->
+<!-- CHAT (used for both DMs and groups/channels) -->
 <div id="screen-chat" class="screen">
   <div class="chat-header">
     <span class="back" onclick="showScreen('screen-main')">←</span>
-    <span id="chat-with"></span>
+    <div class="titles">
+      <span id="chat-with"></span>
+      <span class="sub" id="chat-sub"></span>
+    </div>
   </div>
   <div class="messages" id="messages"></div>
   <div class="composer">
-    <div class="composer-actions">
+    <div class="attach-menu" id="attach-menu">
       <button onclick="pickFile('file')">📎 Файл</button>
       <button onclick="pickFile('image')">🖼️ Фото</button>
-      <button onclick="sendMyLocation()">📍 Моё место</button>
+      <button onclick="sendMyLocation()">📍 Моё местоположение</button>
       <button onclick="openMapPicker()">🗺️ Точка на карте</button>
     </div>
     <div class="composer-row">
-      <input id="message-input" placeholder="Сообщение..." onkeydown="if(event.key==='Enter') sendMessage()">
-      <button onclick="sendMessage()">➤</button>
+      <button class="round-btn attach-btn" onclick="toggleAttachMenu()">➕</button>
+      <div class="composer-pill">
+        <textarea id="message-input" rows="1" placeholder="Сообщение..."
+          oninput="autoGrow(this); updateSendButton();"
+          onkeydown="handleComposerKeydown(event)"></textarea>
+      </div>
+      <button class="round-btn send-btn" id="send-btn" onclick="sendMessage()" disabled>➤</button>
     </div>
   </div>
   <input type="file" id="file-input" style="display:none" accept="*/*">
@@ -297,15 +396,42 @@
 </div>
 
 <!-- MAP PICKER MODAL -->
-<div id="map-modal">
-  <div class="map-modal-bar">
+<div id="map-modal" class="modal">
+  <div class="modal-bar">
     <strong>Выберите точку на карте</strong>
     <span onclick="closeMapPicker()" style="cursor:pointer;font-size:20px;">✕</span>
   </div>
   <div id="map-container"></div>
-  <div class="map-modal-footer">
+  <div class="modal-footer">
     <button class="secondary" onclick="closeMapPicker()">Отмена</button>
     <button onclick="confirmMapPick()">Отправить точку</button>
+  </div>
+</div>
+
+<!-- NEW GROUP / CHANNEL MODAL -->
+<div id="group-modal" class="modal">
+  <div class="modal-bar">
+    <strong>Новая группа/канал</strong>
+    <span onclick="closeNewGroupModal()" style="cursor:pointer;font-size:20px;">✕</span>
+  </div>
+  <div class="modal-body">
+    <div class="type-toggle">
+      <button id="type-group-btn" class="selected" onclick="setGroupType('group')">👥 Группа</button>
+      <button id="type-channel-btn" onclick="setGroupType('channel')">📢 Канал</button>
+    </div>
+    <div class="field">
+      <label>Название</label>
+      <input id="group-name-input" placeholder="Название группы/канала">
+    </div>
+    <div class="field">
+      <label>Участники (из контактов)</label>
+      <div id="group-members-list"></div>
+    </div>
+    <div class="error-text" id="group-error"></div>
+  </div>
+  <div class="modal-footer">
+    <button class="secondary" onclick="closeNewGroupModal()">Отмена</button>
+    <button onclick="createGroup()">Создать</button>
   </div>
 </div>
 
@@ -314,15 +440,16 @@
 <script>
 let state = {
   nickname: localStorage.getItem('nickname') || null,
-  currentChat: null,
+  currentChat: null, // { type: 'dm'|'group'|'channel', id, name }
   ws: null,
   autoLockSeconds: 30,
   lockTimer: null,
   sosActive: false,
   sosWatchId: null,
-  incomingSos: {}, // from -> {lat,lng,ts}
+  incomingSos: {},
   leafletMap: null,
   pickedLatLng: null,
+  newGroupType: 'group',
 };
 
 function showScreen(id) {
@@ -354,7 +481,7 @@ async function register() {
 function enterApp() {
   document.getElementById('main-nickname').textContent = state.nickname;
   connectWs();
-  loadConversations();
+  loadChatList();
   loadSettingsIntoForm();
   pollIncomingSos();
   registerServiceWorker();
@@ -394,12 +521,24 @@ function connectWs() {
   state.ws = new WebSocket(`${proto}://${location.host}/ws?nickname=${encodeURIComponent(state.nickname)}`);
   state.ws.onmessage = (evt) => {
     const msg = JSON.parse(evt.data);
+
     if (msg.type === 'chat') {
-      if (state.currentChat === msg.from) renderMessage(msg, false);
-      loadConversations();
+      if (state.currentChat && state.currentChat.type === 'dm' && state.currentChat.id === msg.from) {
+        renderMessage(msg, false);
+      }
+      loadChatList();
     }
     if (msg.type === 'chat_ack') {
-      loadConversations();
+      loadChatList();
+    }
+    if (msg.type === 'group_chat') {
+      if (state.currentChat && state.currentChat.id === msg.groupId) {
+        renderMessage(msg, msg.from === state.nickname, true);
+      }
+      loadChatList();
+    }
+    if (msg.type === 'group_created') {
+      loadChatList();
     }
     if (msg.type === 'sos_alert') {
       alert(`⚠️ ${msg.from}: ${msg.text}`);
@@ -422,8 +561,6 @@ function connectWs() {
   state.ws.onclose = () => setTimeout(connectWs, 2000);
 }
 
-// Fallback: poll for SOS alerts that were stored while we were offline
-// (websocket push only reaches contacts who are connected right now).
 function pollIncomingSos() {
   setInterval(async () => {
     if (!state.nickname) return;
@@ -455,40 +592,68 @@ function renderSosBanner() {
   }).join('');
 }
 
-// ---------- Search & chat list ----------
+// ---------- Search & chat list (Telegram-style: sorted by recency) ----------
 
 let searchTimeout;
 function onSearch() {
   clearTimeout(searchTimeout);
   searchTimeout = setTimeout(async () => {
     const q = document.getElementById('search-input').value.trim();
-    if (!q) { loadConversations(); return; }
+    if (!q) { loadChatList(); return; }
     const res = await fetch(`/api/search?q=${encodeURIComponent(q)}`);
     const data = await res.json();
-    renderList(data.results.filter(n => n !== state.nickname).map(n => ({ nickname: n, lastMessage: null })));
+    renderList(data.results.filter(n => n !== state.nickname).map(n => ({ type: 'dm', id: n, name: n, lastMessage: null })));
   }, 250);
 }
 
-async function loadConversations() {
-  const res = await fetch(`/api/conversations/${encodeURIComponent(state.nickname)}`);
+async function loadChatList() {
+  const res = await fetch(`/api/chatlist/${encodeURIComponent(state.nickname)}`);
   const data = await res.json();
-  renderList(data.conversations);
+  renderList(data.chats);
+}
+
+function initials(name) {
+  return (name || '?').trim().slice(0, 2).toUpperCase();
+}
+
+function formatTime(ts) {
+  if (!ts) return '';
+  const d = new Date(ts);
+  const now = new Date();
+  if (d.toDateString() === now.toDateString()) {
+    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  }
+  return d.toLocaleDateString([], { day: '2-digit', month: '2-digit' });
 }
 
 function renderList(items) {
   const list = document.getElementById('chat-list');
   list.innerHTML = '';
+  if (!items.length) {
+    list.innerHTML = '<div class="chat-item" style="color:var(--muted);cursor:default;">Ничего не найдено.</div>';
+    return;
+  }
   items.forEach(item => {
     const div = document.createElement('div');
     div.className = 'chat-item';
-    div.onclick = () => openChat(item.nickname);
+    div.onclick = () => item.type === 'dm' ? openChat(item.id, item.name) : openGroupChat(item);
+
     const preview = item.lastMessage
       ? (item.lastMessage.kind === 'text' ? item.lastMessage.text : '[' + labelForKind(item.lastMessage.kind) + ']')
-      : '';
+      : (item.type === 'dm' ? '' : 'Нет сообщений');
+    const prefix = item.lastMessage && (item.type !== 'dm') ? escapeHtml(item.lastMessage.from) + ': ' : '';
+
+    const avatarClass = item.type === 'group' ? 'group' : (item.type === 'channel' ? 'channel' : '');
+    const avatarText = item.type === 'channel' ? '📢' : (item.type === 'group' ? '👥' : initials(item.name));
+
     div.innerHTML = `
-      <div>
-        <div class="name">${escapeHtml(item.nickname)}</div>
-        <div class="preview">${escapeHtml(preview || '')}</div>
+      <div class="chat-avatar ${avatarClass}">${avatarText}</div>
+      <div class="chat-item-body">
+        <div class="chat-item-top">
+          <span class="name">${escapeHtml(item.name)}</span>
+          <span class="time">${formatTime(item.lastTs)}</span>
+        </div>
+        <div class="preview">${prefix}${escapeHtml(preview || '')}</div>
       </div>`;
     list.appendChild(div);
   });
@@ -515,56 +680,116 @@ async function openContacts() {
   data.contacts.forEach(nickname => {
     const div = document.createElement('div');
     div.className = 'chat-item';
-    div.onclick = () => openChat(nickname);
-    div.innerHTML = `<div><div class="name">${escapeHtml(nickname)}</div></div>`;
+    div.onclick = () => openChat(nickname, nickname);
+    div.innerHTML = `<div class="chat-avatar">${initials(nickname)}</div><div class="chat-item-body"><span class="name">${escapeHtml(nickname)}</span></div>`;
     list.appendChild(div);
   });
 }
 
-// ---------- Chat screen ----------
+// ---------- Chat screen (DM) ----------
 
-async function openChat(nickname) {
-  state.currentChat = nickname;
-  document.getElementById('chat-with').textContent = nickname;
+async function openChat(nickname, displayName) {
+  state.currentChat = { type: 'dm', id: nickname, name: displayName || nickname };
+  document.getElementById('chat-with').textContent = state.currentChat.name;
+  document.getElementById('chat-sub').textContent = '';
   const res = await fetch(`/api/messages/${encodeURIComponent(state.nickname)}/${encodeURIComponent(nickname)}`);
   const data = await res.json();
   const box = document.getElementById('messages');
   box.innerHTML = '';
   data.messages.forEach(m => renderMessage(m, m.from === state.nickname));
   showScreen('screen-chat');
+  resetComposer();
 }
 
-function renderMessage(m, mine) {
-  const box = document.getElementById('messages');
-  const div = document.createElement('div');
-  div.className = `msg ${mine ? 'mine' : 'theirs'}`;
+// ---------- Chat screen (group/channel) ----------
 
+async function openGroupChat(item) {
+  const res = await fetch(`/api/groups/${item.id}/messages?nickname=${encodeURIComponent(state.nickname)}`);
+  if (!res.ok) { alert('Не удалось открыть.'); return; }
+  const data = await res.json();
+  state.currentChat = { type: data.group.type, id: data.group.id, name: data.group.name, group: data.group };
+  document.getElementById('chat-with').textContent = data.group.name;
+  document.getElementById('chat-sub').textContent =
+    (data.group.type === 'channel' ? 'Канал · ' : 'Группа · ') + data.group.members.length + ' участник(ов)';
+  const box = document.getElementById('messages');
+  box.innerHTML = '';
+  data.messages.forEach(m => renderMessage(m, m.from === state.nickname, true));
+  showScreen('screen-chat');
+  resetComposer();
+}
+
+function resetComposer() {
+  document.getElementById('message-input').value = '';
+  document.getElementById('attach-menu').classList.remove('active');
+  updateSendButton();
+}
+
+function renderMessage(m, mine, isGroup) {
+  const box = document.getElementById('messages');
+  const row = document.createElement('div');
+  row.className = `msg-row ${mine ? 'mine' : 'theirs'}`;
+
+  let senderHtml = '';
+  if (isGroup && !mine) senderHtml = `<div class="msg-sender">${escapeHtml(m.from)}</div>`;
+
+  let bodyHtml;
   if (m.kind === 'location') {
     const mapUrl = `https://www.google.com/maps?q=${m.lat},${m.lng}`;
-    div.innerHTML = `📍 ${escapeHtml(m.label || 'Локация')}<br><a href="${mapUrl}" target="_blank">Открыть на карте</a>`;
+    bodyHtml = `📍 ${escapeHtml(m.label || 'Локация')}<br><a href="${mapUrl}" target="_blank">Открыть на карте</a>`;
   } else if (m.kind === 'file') {
     const isImage = (m.mime || '').startsWith('image/');
-    if (isImage) {
-      div.innerHTML = `<img src="${m.fileUrl}" alt="${escapeHtml(m.fileName || '')}"><a href="${m.fileUrl}" target="_blank">${escapeHtml(m.fileName || 'файл')}</a>`;
-    } else {
-      div.innerHTML = `📎 <a href="${m.fileUrl}" target="_blank">${escapeHtml(m.fileName || 'файл')}</a>`;
-    }
+    bodyHtml = isImage
+      ? `<img src="${m.fileUrl}" alt="${escapeHtml(m.fileName || '')}"><a href="${m.fileUrl}" target="_blank">${escapeHtml(m.fileName || 'файл')}</a>`
+      : `📎 <a href="${m.fileUrl}" target="_blank">${escapeHtml(m.fileName || 'файл')}</a>`;
   } else {
-    div.textContent = m.text;
+    bodyHtml = escapeHtml(m.text).replace(/\n/g, '<br>');
   }
 
-  box.appendChild(div);
+  const time = m.ts ? formatTime(m.ts) : '';
+  row.innerHTML = `${senderHtml}<div class="msg">${bodyHtml}<div class="msg-time">${time}</div></div>`;
+  box.appendChild(row);
   box.scrollTop = box.scrollHeight;
+}
+
+function handleComposerKeydown(event) {
+  if (event.key === 'Enter' && !event.shiftKey) {
+    event.preventDefault();
+    sendMessage();
+  }
+}
+
+function autoGrow(el) {
+  el.style.height = 'auto';
+  el.style.height = Math.min(el.scrollHeight, 120) + 'px';
+}
+
+function updateSendButton() {
+  const text = document.getElementById('message-input').value.trim();
+  document.getElementById('send-btn').disabled = !text;
+}
+
+function toggleAttachMenu() {
+  document.getElementById('attach-menu').classList.toggle('active');
 }
 
 function sendMessage() {
   const input = document.getElementById('message-input');
   const text = input.value.trim();
   if (!text || !state.currentChat) return;
-  const payload = { type: 'chat', to: state.currentChat, kind: 'text', text };
-  state.ws.send(JSON.stringify(payload));
-  renderMessage({ kind: 'text', text }, true);
+
+  if (state.currentChat.type === 'dm') {
+    const payload = { type: 'chat', to: state.currentChat.id, kind: 'text', text };
+    state.ws.send(JSON.stringify(payload));
+    renderMessage({ kind: 'text', text, ts: Date.now() }, true);
+  } else {
+    const payload = { type: 'group_chat', groupId: state.currentChat.id, kind: 'text', text };
+    state.ws.send(JSON.stringify(payload));
+    renderMessage({ kind: 'text', text, ts: Date.now(), from: state.nickname }, true, true);
+  }
   input.value = '';
+  autoGrow(input);
+  updateSendButton();
+  document.getElementById('attach-menu').classList.remove('active');
 }
 
 function escapeHtml(s) {
@@ -574,6 +799,7 @@ function escapeHtml(s) {
 // ---------- File / photo sending ----------
 
 function pickFile(kind) {
+  toggleAttachMenu();
   const input = document.getElementById('file-input');
   input.accept = kind === 'image' ? 'image/*' : '*/*';
   input.onchange = async () => {
@@ -584,15 +810,19 @@ function pickFile(kind) {
     const res = await fetch('/api/upload', { method: 'POST', body: form });
     const data = await res.json();
     if (!res.ok) { alert('Не удалось загрузить файл.'); return; }
-    const payload = {
-      type: 'chat', to: state.currentChat, kind: 'file',
-      fileUrl: data.url, fileName: data.fileName, mime: data.mime
-    };
-    state.ws.send(JSON.stringify(payload));
-    renderMessage(payload, true);
+    sendStructured('file', { fileUrl: data.url, fileName: data.fileName, mime: data.mime });
     input.value = '';
   };
   input.click();
+}
+
+function sendStructured(kind, fields) {
+  const isGroup = state.currentChat.type !== 'dm';
+  const payload = isGroup
+    ? { type: 'group_chat', groupId: state.currentChat.id, kind, ...fields }
+    : { type: 'chat', to: state.currentChat.id, kind, ...fields };
+  state.ws.send(JSON.stringify(payload));
+  renderMessage({ kind, ts: Date.now(), from: state.nickname, ...fields }, true, isGroup);
 }
 
 // ---------- Location sending ----------
@@ -616,26 +846,20 @@ function getBestLocation(onDone) {
 
 function sendMyLocation() {
   if (!state.currentChat) return;
-  const btn = event.target;
-  btn.textContent = '📍 Определяю...';
+  toggleAttachMenu();
   getBestLocation((pos) => {
-    btn.textContent = '📍 Моё место';
     if (!pos) { alert('Не удалось получить местоположение. Разрешите доступ к геолокации.'); return; }
-    const payload = {
-      type: 'chat', to: state.currentChat, kind: 'location',
-      lat: pos.coords.latitude, lng: pos.coords.longitude, label: 'Текущее местоположение'
-    };
-    state.ws.send(JSON.stringify(payload));
-    renderMessage(payload, true);
+    sendStructured('location', { lat: pos.coords.latitude, lng: pos.coords.longitude, label: 'Текущее местоположение' });
   });
 }
 
 function openMapPicker() {
   if (!state.currentChat) return;
+  toggleAttachMenu();
   document.getElementById('map-modal').classList.add('active');
   setTimeout(() => {
     if (!state.leafletMap) {
-      state.leafletMap = L.map('map-container').setView([41.3, 69.24], 12); // default: Tashkent
+      state.leafletMap = L.map('map-container').setView([41.3, 69.24], 12);
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '&copy; OpenStreetMap contributors'
       }).addTo(state.leafletMap);
@@ -659,13 +883,61 @@ function closeMapPicker() {
 
 function confirmMapPick() {
   if (!state.pickedLatLng) { alert('Нажмите на карту, чтобы выбрать точку.'); return; }
-  const payload = {
-    type: 'chat', to: state.currentChat, kind: 'location',
-    lat: state.pickedLatLng.lat, lng: state.pickedLatLng.lng, label: 'Отправленная точка'
-  };
-  state.ws.send(JSON.stringify(payload));
-  renderMessage(payload, true);
+  sendStructured('location', { lat: state.pickedLatLng.lat, lng: state.pickedLatLng.lng, label: 'Отправленная точка' });
   closeMapPicker();
+}
+
+// ---------- Groups & channels ----------
+
+async function openNewGroupModal() {
+  document.getElementById('group-modal').classList.add('active');
+  document.getElementById('group-name-input').value = '';
+  document.getElementById('group-error').textContent = '';
+  setGroupType('group');
+
+  const res = await fetch(`/api/contacts/${encodeURIComponent(state.nickname)}`);
+  const data = await res.json();
+  const list = document.getElementById('group-members-list');
+  list.innerHTML = '';
+  if (!data.contacts || !data.contacts.length) {
+    list.innerHTML = '<div style="color:var(--muted);font-size:13px;">Нет контактов для добавления — сначала найди кого-то через поиск.</div>';
+    return;
+  }
+  data.contacts.forEach(c => {
+    const row = document.createElement('label');
+    row.className = 'member-row';
+    row.innerHTML = `<input type="checkbox" value="${escapeHtml(c)}"> <span>${escapeHtml(c)}</span>`;
+    list.appendChild(row);
+  });
+}
+
+function closeNewGroupModal() {
+  document.getElementById('group-modal').classList.remove('active');
+}
+
+function setGroupType(type) {
+  state.newGroupType = type;
+  document.getElementById('type-group-btn').classList.toggle('selected', type === 'group');
+  document.getElementById('type-channel-btn').classList.toggle('selected', type === 'channel');
+}
+
+async function createGroup() {
+  const name = document.getElementById('group-name-input').value.trim();
+  const errEl = document.getElementById('group-error');
+  if (!name) { errEl.textContent = 'Введите название.'; return; }
+
+  const members = [...document.querySelectorAll('#group-members-list input:checked')].map(el => el.value);
+
+  const res = await fetch('/api/groups', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ nickname: state.nickname, name, type: state.newGroupType, members })
+  });
+  const data = await res.json();
+  if (!res.ok) { errEl.textContent = data.error; return; }
+
+  closeNewGroupModal();
+  loadChatList();
+  openGroupChat(data.group);
 }
 
 // ---------- Push notifications ----------
@@ -819,7 +1091,7 @@ async function submitPin() {
     });
     document.getElementById('chat-list').innerHTML = '';
     errEl.textContent = '';
-    enterApp(); // SOS (if active) keeps running regardless — see below.
+    enterApp();
   }
 }
 
@@ -871,10 +1143,6 @@ function startSosLocationSharing() {
     }
   }, () => {}, { enableHighAccuracy: true, maximumAge: 5000 });
 }
-
-// Note: stopSos() is the only thing that stops watchPosition/SOS.
-// The duress-PIN wipe flow above never calls stopSos() — SOS keeps
-// running in the background even after a wipe, by design.
 </script>
 </body>
 </html>
