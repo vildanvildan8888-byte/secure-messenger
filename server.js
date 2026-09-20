@@ -76,7 +76,7 @@ const wss = new WebSocket.Server({ server, path: '/ws' });
 
 function loadDb() {
   if (!fs.existsSync(DB_PATH)) {
-    const fresh = { users: {}, conversations: {}, reservedNicknames: {}, activeSos: {}, groups: {}, groupMessages: {} };
+    const fresh = { users: {}, conversations: {}, reservedNicknames: {}, activeSos: {}, groups: {}, groupMessages: {}, activeSosSessions: {} };
     fs.writeFileSync(DB_PATH, JSON.stringify(fresh, null, 2));
     return fresh;
   }
@@ -85,6 +85,7 @@ function loadDb() {
   if (!data.reservedNicknames) data.reservedNicknames = {};
   if (!data.groups) data.groups = {};
   if (!data.groupMessages) data.groupMessages = {};
+  if (!data.activeSosSessions) data.activeSosSessions = {};
   return data;
 }
 
@@ -230,7 +231,12 @@ function handleWsMessage(fromNick, msg) {
   if (msg.type === 'sos_location') {
     const { lat, lng } = msg;
     const entry = { lat, lng, ts: Date.now(), active: true };
-    for (const contact of user.sosContacts || []) {
+    // Use the recipient snapshot taken at trigger time — NOT the live
+    // sosContacts setting — so a duress-PIN wipe (which clears the
+    // visible settings) can't silently kill an already-running session.
+    const session = db.activeSosSessions[fromNick];
+    const recipients = session ? session.recipients : (user.sosContacts || []);
+    for (const contact of recipients) {
       if (!db.activeSos[contact]) db.activeSos[contact] = {};
       db.activeSos[contact][fromNick] = entry;
       sendTo(contact, { type: 'sos_location', from: fromNick, ...entry });
@@ -239,12 +245,15 @@ function handleWsMessage(fromNick, msg) {
   }
 
   if (msg.type === 'sos_stop') {
-    for (const contact of user.sosContacts || []) {
+    const session = db.activeSosSessions[fromNick];
+    const recipients = session ? session.recipients : (user.sosContacts || []);
+    for (const contact of recipients) {
       if (db.activeSos[contact]) {
         delete db.activeSos[contact][fromNick];
       }
       sendTo(contact, { type: 'sos_stopped', from: fromNick });
     }
+    delete db.activeSosSessions[fromNick];
     saveDb();
   }
 }
@@ -463,6 +472,13 @@ app.post('/api/wipe', (req, res) => {
   user.contacts = [];
   user.incomingLocked = true;
 
+  // Reset the VISIBLE settings so nothing incriminating is left sitting
+  // in the settings screen — an active SOS session is untouched below,
+  // because it's driven by db.activeSosSessions[nickname], not by
+  // this (now-cleared) list.
+  user.sosContacts = [];
+  user.wipeNoticeContacts = [];
+
   saveDb();
 
   for (const contact of wipeNoticeContacts) {
@@ -505,6 +521,10 @@ app.post('/api/sos/trigger', (req, res) => {
     return res.status(400).json({ error: 'Сначала добавь доверенные контакты в настройках.' });
   }
   const unknown = user.sosContacts.filter(c => !db.users[c]);
+  // Snapshot recipients now — this survives even if the visible
+  // sosContacts setting gets cleared later (e.g. by a duress-PIN wipe).
+  db.activeSosSessions[nickname] = { recipients: [...user.sosContacts], startedAt: Date.now() };
+  saveDb();
   for (const contact of user.sosContacts) {
     const delivered = sendTo(contact, { type: 'sos_alert', from: nickname, text: 'Возможно, я в беде.' });
     if (!delivered) sendPush(contact, { title: '⚠️ SOS', body: `${nickname}: Возможно, я в беде.`, tag: 'sos-' + nickname, url: '/' });
