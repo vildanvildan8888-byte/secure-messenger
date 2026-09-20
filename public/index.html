@@ -1098,25 +1098,43 @@ async function submitPin() {
 // ---------- SOS (independent of chat/wipe state) ----------
 
 function toggleSos() {
-  if (state.sosActive) {
-    stopSos();
+  state.sosClickCount = (state.sosClickCount || 0) + 1;
+
+  if (state.sosClickCount === 1) {
+    state.sosClickTimer = setTimeout(() => {
+      // No second click arrived in time — treat as a single tap.
+      // Single tap only ever activates; it never re-fires or shows
+      // anything if SOS is already running (so a stray tap while
+      // active can't spam trusted contacts or reveal anything).
+      if (state.sosClickCount === 1 && !state.sosActive) {
+        triggerSos();
+      }
+      state.sosClickCount = 0;
+    }, 400);
   } else {
-    triggerSos();
+    // Second click within the window — deactivation gesture.
+    clearTimeout(state.sosClickTimer);
+    state.sosClickCount = 0;
+    if (state.sosActive) {
+      stopSos();
+      alert('SOS деактивирован.');
+    }
   }
 }
 
 async function triggerSos() {
-  if (!confirm('Отправить сигнал SOS доверенным контактам и начать передачу геолокации?')) return;
+  // Deliberately no confirm() dialog and no button-text change here —
+  // activation must be a single, silent, low-friction tap.
   const res = await fetch('/api/sos/trigger', {
     method: 'POST', headers: {'Content-Type':'application/json'},
     body: JSON.stringify({ nickname: state.nickname })
   });
   const data = await res.json();
   if (!res.ok) { alert(data.error); return; }
-  if (data.warning) alert(data.warning);
   startSosLocationSharing();
   state.sosActive = true;
-  document.getElementById('sos-toggle-btn').textContent = 'Остановить SOS';
+  // Button label is intentionally left untouched — see CSS/HTML: it
+  // always just says "SOS", active or not.
 }
 
 function stopSos() {
@@ -1128,7 +1146,6 @@ function stopSos() {
     state.ws.send(JSON.stringify({ type: 'sos_stop' }));
   }
   state.sosActive = false;
-  document.getElementById('sos-toggle-btn').textContent = 'SOS';
 }
 
 function startSosLocationSharing() {
