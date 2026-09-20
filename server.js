@@ -214,6 +214,12 @@ app.get('/api/search', (req, res) => {
   res.json({ results });
 });
 
+app.get('/api/contacts/:nickname', (req, res) => {
+  const user = db.users[req.params.nickname];
+  if (!user) return res.status(404).json({ error: 'not found' });
+  res.json({ contacts: user.contacts || [] });
+});
+
 app.get('/api/conversations/:nickname', (req, res) => {
   const { nickname } = req.params;
   if (!db.users[nickname]) return res.status(404).json({ error: 'not found' });
