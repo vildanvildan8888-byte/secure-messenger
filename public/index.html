@@ -286,6 +286,11 @@
       <label>Контакты уведомления об очистке (никнеймы через запятую)</label>
       <input id="set-wipe-contacts" placeholder="друг1, друг2">
     </div>
+    <div class="field">
+      <label>Push-уведомления</label>
+      <button id="push-toggle-btn" class="secondary" onclick="togglePush()">Включить уведомления</button>
+      <div style="font-size:12px;color:var(--muted);">На iPhone работает только если сайт добавлен на «Экран Домой» (Safari → Поделиться → На экран Домой).</div>
+    </div>
     <button onclick="saveSettings()">Сохранить</button>
     <div class="error-text" id="settings-status"></div>
   </div>
@@ -352,6 +357,7 @@ function enterApp() {
   loadConversations();
   loadSettingsIntoForm();
   pollIncomingSos();
+  registerServiceWorker();
   showScreen('screen-main');
 }
 
@@ -662,9 +668,75 @@ function confirmMapPick() {
   closeMapPicker();
 }
 
-// ---------- Settings ----------
+// ---------- Push notifications ----------
 
-function openSettings() { showScreen('screen-settings'); loadSettingsIntoForm(); }
+async function registerServiceWorker() {
+  if (!('serviceWorker' in navigator)) return;
+  try {
+    await navigator.serviceWorker.register('/sw.js');
+    updatePushButtonLabel();
+  } catch (e) { console.warn('SW registration failed', e); }
+}
+
+async function updatePushButtonLabel() {
+  const btn = document.getElementById('push-toggle-btn');
+  if (!btn || !('serviceWorker' in navigator) || !('PushManager' in window)) {
+    if (btn) { btn.textContent = 'Push не поддерживается в этом браузере'; btn.disabled = true; }
+    return;
+  }
+  const reg = await navigator.serviceWorker.ready;
+  const sub = await reg.pushManager.getSubscription();
+  btn.textContent = sub ? 'Отключить уведомления' : 'Включить уведомления';
+}
+
+function urlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - base64String.length % 4) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = atob(base64);
+  return Uint8Array.from([...rawData].map(c => c.charCodeAt(0)));
+}
+
+async function togglePush() {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+    alert('Этот браузер не поддерживает push-уведомления.');
+    return;
+  }
+  const reg = await navigator.serviceWorker.ready;
+  const existing = await reg.pushManager.getSubscription();
+
+  if (existing) {
+    await fetch('/api/push/unsubscribe', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ nickname: state.nickname, endpoint: existing.endpoint })
+    });
+    await existing.unsubscribe();
+    updatePushButtonLabel();
+    return;
+  }
+
+  const permission = await Notification.requestPermission();
+  if (permission !== 'granted') {
+    alert('Уведомления заблокированы в настройках браузера.');
+    return;
+  }
+
+  const keyRes = await fetch('/api/push/vapid-public-key');
+  const { publicKey } = await keyRes.json();
+
+  const subscription = await reg.pushManager.subscribe({
+    userVisibleOnly: true,
+    applicationServerKey: urlBase64ToUint8Array(publicKey)
+  });
+
+  await fetch('/api/push/subscribe', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ nickname: state.nickname, subscription })
+  });
+
+  updatePushButtonLabel();
+}
+
+function openSettings() { showScreen('screen-settings'); loadSettingsIntoForm(); updatePushButtonLabel(); }
 
 async function loadSettingsIntoForm() {
   const res = await fetch(`/api/settings/${encodeURIComponent(state.nickname)}`);
