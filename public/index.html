@@ -110,7 +110,7 @@
     flex-shrink: 0;
     padding-bottom: var(--safe-bottom);
   }
-  .bottom-nav button { flex: 1; border-radius: 0; background: #fff; color: var(--text); padding: 12px 4px; font-size: 12px; }
+  .bottom-nav button { flex: 1; border-radius: 0; background: #fff; color: var(--text); padding: 12px 2px; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .bottom-nav button.lock { color: var(--danger); }
 
   .chat-header {
@@ -215,9 +215,19 @@
   <div class="chat-list" id="chat-list"></div>
   <div class="bottom-nav">
     <button onclick="showScreen('screen-main')">Чаты</button>
+    <button onclick="openContacts()">Контакты</button>
     <button onclick="openSettings()">Настройки</button>
     <button class="lock" onclick="lockNow()">Заблокировать</button>
   </div>
+</div>
+
+<!-- CONTACTS -->
+<div id="screen-contacts" class="screen">
+  <div class="chat-header">
+    <span class="back" onclick="showScreen('screen-main')">←</span>
+    <span>Контакты</span>
+  </div>
+  <div class="chat-list" id="contacts-list"></div>
 </div>
 
 <!-- CHAT -->
@@ -482,6 +492,27 @@ function labelForKind(kind) {
   if (kind === 'location') return 'локация';
   if (kind === 'file') return 'файл';
   return '';
+}
+
+// ---------- Contacts ----------
+
+async function openContacts() {
+  showScreen('screen-contacts');
+  const res = await fetch(`/api/contacts/${encodeURIComponent(state.nickname)}`);
+  const data = await res.json();
+  const list = document.getElementById('contacts-list');
+  list.innerHTML = '';
+  if (!data.contacts || !data.contacts.length) {
+    list.innerHTML = '<div class="chat-item" style="color:var(--muted);cursor:default;">Пока нет контактов — найди кого-нибудь через поиск в «Чатах».</div>';
+    return;
+  }
+  data.contacts.forEach(nickname => {
+    const div = document.createElement('div');
+    div.className = 'chat-item';
+    div.onclick = () => openChat(nickname);
+    div.innerHTML = `<div><div class="name">${escapeHtml(nickname)}</div></div>`;
+    list.appendChild(div);
+  });
 }
 
 // ---------- Chat screen ----------
