@@ -12,6 +12,42 @@ const fs = require('fs');
 const path = require('path');
 const WebSocket = require('ws');
 const multer = require('multer');
+const webpush = require('web-push');
+
+// ---------- Push notifications (VAPID) ----------
+// If you don't set these as env vars, the server generates a fresh pair
+// on every restart — which INVALIDATES every existing subscription each
+// time it restarts. Set VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY as Render
+// env vars (copy the values this prints once) so they stay stable.
+let VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY;
+let VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY;
+if (!VAPID_PUBLIC_KEY || !VAPID_PRIVATE_KEY) {
+  const generated = webpush.generateVAPIDKeys();
+  VAPID_PUBLIC_KEY = generated.publicKey;
+  VAPID_PRIVATE_KEY = generated.privateKey;
+  console.warn('\n⚠️  No VAPID_PUBLIC_KEY/VAPID_PRIVATE_KEY env vars set — generated temporary ones.');
+  console.warn('   Push subscriptions will break on every restart until you set these on Render:');
+  console.warn('   VAPID_PUBLIC_KEY=' + VAPID_PUBLIC_KEY);
+  console.warn('   VAPID_PRIVATE_KEY=' + VAPID_PRIVATE_KEY + '\n');
+}
+webpush.setVapidDetails('mailto:admin@example.com', VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
+
+async function sendPush(nickname, payload) {
+  const user = db.users[nickname];
+  if (!user || !user.pushSubscriptions || !user.pushSubscriptions.length) return;
+  const stillValid = [];
+  for (const sub of user.pushSubscriptions) {
+    try {
+      await webpush.sendNotification(sub, JSON.stringify(payload));
+      stillValid.push(sub);
+    } catch (err) {
+      // 404/410 = subscription expired or the browser unsubscribed — drop it.
+      if (err.statusCode !== 404 && err.statusCode !== 410) stillValid.push(sub);
+    }
+  }
+  user.pushSubscriptions = stillValid;
+  saveDb();
+}
 
 const DB_PATH = process.env.DB_PATH || path.join(__dirname, 'db.json');
 const UPLOADS_DIR = process.env.UPLOADS_DIR || path.join(__dirname, 'uploads');
@@ -148,8 +184,13 @@ function handleWsMessage(fromNick, msg) {
     if (!recipient.contacts.includes(fromNick)) recipient.contacts.push(fromNick);
     saveDb();
 
-    sendTo(to, { type: 'chat', ...message });
+    const delivered = sendTo(to, { type: 'chat', ...message });
     sendTo(fromNick, { type: 'chat_ack', to, ...message });
+
+    if (!delivered) {
+      const preview = kind === 'text' ? message.text : (kind === 'location' ? '📍 Локация' : '📎 Файл');
+      sendPush(to, { title: fromNick, body: preview, tag: 'chat-' + fromNick, url: '/' });
+    }
   }
 
   if (msg.type === 'sos_location') {
@@ -197,6 +238,7 @@ app.post('/api/register', (req, res) => {
     wipeNoticeContacts: [],
     incomingLocked: false,
     autoLockSeconds: 30,
+    pushSubscriptions: [],
     createdAt: Date.now(),
   };
   db.reservedNicknames[clean] = true;
@@ -301,11 +343,9 @@ app.post('/api/wipe', (req, res) => {
   saveDb();
 
   for (const contact of wipeNoticeContacts) {
-    sendTo(contact, {
-      type: 'wipe_notice',
-      about: nickname,
-      text: `Аккаунт "${nickname}" активировал аварийную очистку. История переписки была удалена.`,
-    });
+    const text = `Аккаунт "${nickname}" активировал аварийную очистку. История переписки была удалена.`;
+    const delivered = sendTo(contact, { type: 'wipe_notice', about: nickname, text });
+    if (!delivered) sendPush(contact, { title: 'Аварийная очистка', body: text, tag: 'wipe-' + nickname, url: '/' });
   }
 
   // SOS state is untouched here on purpose — see db.activeSos / client watch.
@@ -343,7 +383,8 @@ app.post('/api/sos/trigger', (req, res) => {
   }
   const unknown = user.sosContacts.filter(c => !db.users[c]);
   for (const contact of user.sosContacts) {
-    sendTo(contact, { type: 'sos_alert', from: nickname, text: 'Возможно, я в беде.' });
+    const delivered = sendTo(contact, { type: 'sos_alert', from: nickname, text: 'Возможно, я в беде.' });
+    if (!delivered) sendPush(contact, { title: '⚠️ SOS', body: `${nickname}: Возможно, я в беде.`, tag: 'sos-' + nickname, url: '/' });
   }
   res.json({ ok: true, warning: unknown.length ? `Никнейм(ы) не найдены: ${unknown.join(', ')}` : null });
 });
@@ -353,6 +394,30 @@ app.get('/api/sos/incoming/:nickname', (req, res) => {
   const entries = db.activeSos[req.params.nickname] || {};
   const list = Object.keys(entries).map(from => ({ from, ...entries[from] }));
   res.json({ alerts: list });
+});
+
+app.get('/api/push/vapid-public-key', (req, res) => {
+  res.json({ publicKey: VAPID_PUBLIC_KEY });
+});
+
+app.post('/api/push/subscribe', (req, res) => {
+  const { nickname, subscription } = req.body || {};
+  const user = db.users[nickname];
+  if (!user || !subscription) return res.status(404).json({ error: 'not found' });
+  if (!user.pushSubscriptions) user.pushSubscriptions = [];
+  const exists = user.pushSubscriptions.some(s => s.endpoint === subscription.endpoint);
+  if (!exists) user.pushSubscriptions.push(subscription);
+  saveDb();
+  res.json({ ok: true });
+});
+
+app.post('/api/push/unsubscribe', (req, res) => {
+  const { nickname, endpoint } = req.body || {};
+  const user = db.users[nickname];
+  if (!user) return res.status(404).json({ error: 'not found' });
+  user.pushSubscriptions = (user.pushSubscriptions || []).filter(s => s.endpoint !== endpoint);
+  saveDb();
+  res.json({ ok: true });
 });
 
 const PORT = process.env.PORT || 3000;
